@@ -1,0 +1,28 @@
+# 环境变量和密钥
+.env
+.env.*
+!.env.example
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# PyCharm / IntelliJ
+.idea/
+
+# Jupyter 自动检查点
+.ipynb_checkpoints/
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 系统文件
+.DS_Store
+Thumbs.db
