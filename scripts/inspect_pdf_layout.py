@@ -3,7 +3,10 @@ import re
 from collections import Counter
 
 import pymupdf
-
+from utils.pdf_structure import (
+    extract_text_blocks,
+    order_document_blocks,
+)
 
 # 中文论文中常见的章节标题
 CHINESE_HEADING_KEYWORDS = {
@@ -647,6 +650,59 @@ def find_heading_candidates(
     return candidates
 
 
+def find_block_heading_candidates(
+    blocks,
+    body_size,
+    repeated_margin_texts,
+    threshold,
+):
+    """
+    根据完整文本块判断标题候选。
+
+    与旧函数的区别：
+        旧函数逐行判断；
+        新函数保留文本块中的多行标题。
+    """
+    candidates = []
+
+    for block in blocks:
+        combined_text = " ".join(
+            block.text.splitlines()
+        )
+
+        item = {
+            "page": block.page,
+            "block_id": block.block_id,
+            "column": block.column,
+            "bbox": block.bbox,
+            "y": block.y0,
+            "text": combined_text,
+            "size": block.font_size,
+            "bold": block.bold,
+            "centered": block.centered,
+        }
+
+        score, reasons = (
+            calculate_heading_score(
+                item,
+                body_size,
+                repeated_margin_texts,
+            )
+        )
+
+        if score < threshold:
+            continue
+
+        item["score"] = score
+        item["reasons"] = reasons
+
+        candidates.append(
+            item
+        )
+
+    return candidates
+
+
 def print_font_statistics(
     size_char_counts,
 ):
@@ -749,11 +805,21 @@ def main():
         )
     )
 
-    candidates = find_heading_candidates(
-        lines,
-        body_size,
-        repeated_margin_texts,
-        args.threshold,
+    text_blocks = extract_text_blocks(
+        args.pdf_path
+    )
+
+    ordered_blocks = order_document_blocks(
+        text_blocks
+    )
+
+    candidates = (
+        find_block_heading_candidates(
+            ordered_blocks,
+            body_size,
+            repeated_margin_texts,
+            args.threshold,
+        )
     )
 
     print(f"PDF 页数：{page_count}")
