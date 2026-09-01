@@ -170,24 +170,77 @@ class Section:
     title: str
     level: int
     number: str | None = None
+
+    heading_blocks: list[TextBlock] = field(
+        default_factory=list
+    )
+
     blocks: list[TextBlock] = field(
+        default_factory=list
+    )
+
+    children: list["Section"] = field(
         default_factory=list
     )
 
     @property
     def text(self):
+        """
+        当前章节直属正文，
+        不包含子章节正文。
+        """
         return "\n\n".join(
             block.text
             for block in self.blocks
         )
 
     @property
+    def full_text(self):
+        """
+        当前章节及所有子章节的完整正文。
+        """
+        text_parts = []
+
+        if self.text:
+            text_parts.append(
+                self.text
+            )
+
+        for child in self.children:
+            child_text = (
+                child.full_text
+            )
+
+            if child_text:
+                text_parts.append(
+                    child_text
+                )
+
+        return "\n\n".join(
+            text_parts
+        )
+
+    @property
     def pages(self):
+        """
+        当前章节标题、正文和子章节
+        涉及的全部页码。
+        """
+        page_numbers = {
+            block.page
+            for block in (
+                self.heading_blocks
+                + self.blocks
+            )
+        }
+
+        for child in self.children:
+            page_numbers.update(
+                child.pages
+            )
+
         return sorted(
-            {
-                block.page
-                for block in self.blocks
-            }
+            page_numbers
         )
 
 

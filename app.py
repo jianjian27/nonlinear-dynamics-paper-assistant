@@ -7,8 +7,15 @@ from models.deepseek_api import (
 
 from utils.pdf_reader import extract_pages_from_pdf
 from utils.text_splitter import split_pages
-from utils.chunk_selector import select_chunks
+from utils.chunk_selector import (
+    combine_selected_sections,
+    select_chunks,
+    select_sections,
+)
 from utils.markdown_cleaner import clean_markdown
+from utils.paper_parser import (
+    parse_pdf_sections,
+)
 
 from prompts.paper_summary_prompt import PAPER_SUMMARY_PROMPT
 from prompts.model_analysis_prompt import MODEL_ANALYSIS_PROMPT
@@ -88,6 +95,37 @@ def analyze_paper(
                 chunk["text"]
                 for chunk in selected_chunks
             )
+
+            if analysis_type != "快速阅读":
+                progress(
+                    0.55,
+                    desc="正在识别论文章节结构……",
+                )
+
+                root_sections = (
+                    parse_pdf_sections(
+                        pdf_file.name
+                    )
+                )
+
+                selected_sections = (
+                    select_sections(
+                        root_sections,
+                        analysis_type,
+                    )
+                )
+
+                structured_content = (
+                    combine_selected_sections(
+                        selected_sections
+                    )
+                ).strip()
+
+                if structured_content:
+                    paper_content = (
+                        structured_content
+                    )
+
         else:
             paper_content = abstract
 
