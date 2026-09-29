@@ -1,0 +1,1 @@
+"""Automated tests for the paper analysis project."""
