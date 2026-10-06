@@ -13,7 +13,7 @@ class PaperRepository:
     ) -> None:
         self.connection = connection
 
-    def add(self, paper: Paper) -> None:
+    def add(self, paper: Paper, *, commit:bool = True,) -> None:
         """向数据库中保存一篇论文。"""
 
         authors_json = json.dumps(
@@ -48,7 +48,8 @@ class PaperRepository:
                 ),
             )
 
-            self.connection.commit()
+            if commit:
+                self.connection.commit()
         except sqlite3.Error:
             self.connection.rollback()
             raise

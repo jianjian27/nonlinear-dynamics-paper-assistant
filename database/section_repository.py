@@ -18,6 +18,8 @@ class SectionRepository:
             self,
             paper_id: str,
             root_sections: list[Section],
+            *,
+            commit: bool = True,
     ) -> list[SectionRecord]:
         """按照文档顺序保存完整章节树。"""
 
@@ -58,7 +60,9 @@ class SectionRepository:
                 ],
             )
 
-            self.connection.commit()
+            if commit:
+                self.connection.commit()
+
         except sqlite3.Error:
             self.connection.rollback()
             raise

@@ -31,6 +31,8 @@ class PaperIngestor:
             authors: Sequence[str] = (),
             year: int | None = None,
             doi: str | None = None,
+            *,
+            commit: bool = True,
     ) -> PaperIngestionResult:
         """导入论文元数据，并避免重复文件入库。"""
 
@@ -60,7 +62,10 @@ class PaperIngestor:
             doi=doi,
         )
 
-        self.repository.add(paper)
+        self.repository.add(
+            paper,
+            commit=commit,
+        )
 
         saved_paper = self.repository.get_by_id(
             paper.id

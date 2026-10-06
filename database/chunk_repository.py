@@ -15,6 +15,8 @@ class ChunkRepository:
         self,
         chunks: list[Chunk],
         sections: list[SectionRecord],
+        *,
+        commit: bool = True,
     ) -> None:
         """批量保存 Chunk，并关联对应章节。"""
 
@@ -100,7 +102,8 @@ class ChunkRepository:
                 rows,
             )
 
-            self.connection.commit()
+            if commit:
+                self.connection.commit()
         except sqlite3.Error:
             self.connection.rollback()
             raise
