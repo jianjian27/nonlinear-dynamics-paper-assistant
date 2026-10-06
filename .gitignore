@@ -29,3 +29,8 @@ Thumbs.db
 
 # 本地项目规划与开发日志
 日志/
+
+# 本地论文数据库
+data/*.db
+data/*.db-shm
+data/*.db-wal
