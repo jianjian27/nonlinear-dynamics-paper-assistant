@@ -296,6 +296,36 @@ class TestChunkRepository(unittest.TestCase):
 
         self.assertEqual(row[0], 0)
 
+    def test_lists_all_chunks(self) -> None:
+        section_tree = self.create_section_tree()
+
+        section_records = (
+            self.section_repository.add_tree(
+                paper_id="paper-1",
+                root_sections=section_tree,
+            )
+        )
+
+        chunks = build_chunks(
+            root_sections=section_tree,
+            paper_id="paper-1",
+            max_chars=100,
+            overlap_chars=0,
+        )
+
+        self.chunk_repository.add_many(
+            chunks=chunks,
+            sections=section_records,
+        )
+
+        saved_chunks = (
+            self.chunk_repository.list_all()
+        )
+
+        self.assertEqual(
+            saved_chunks,
+            chunks,
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,6 +129,23 @@ class ChunkRepository:
             for row in rows
         ]
 
+    def list_all(self) -> list[Chunk]:
+        """按照论文和Chunk顺序查询所有 Chunk。"""
+
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM chunks
+            ORDER BY paper_id, chunk_index
+            """
+        ).fetchall()
+
+        return [
+            self._row_to_chunk(row)
+            for row in rows
+        ]
+
+
     def get_by_id(self, chunk_id: str) -> Chunk | None:
         """根据 Chunk ID 查询单个 Chunk。"""
 

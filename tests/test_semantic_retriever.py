@@ -1,0 +1,232 @@
+import unittest
+from unittest.mock import Mock
+
+import numpy as np
+
+from database.chunk_repository import (
+    ChunkRepository,
+)
+from domain.chunk import Chunk
+from embedding.base import TextEncoder
+from retrieval.semantic_retriever import (
+    SemanticRetriever,
+)
+
+
+def make_chunk(
+    index: int,
+    content: str,
+    *,
+    paper_id: str = "paper-1",
+) -> Chunk:
+    return Chunk(
+        id=f"{paper_id}-chunk-{index}",
+        paper_id=paper_id,
+        chunk_index=index,
+        section_title=f"章节{index}",
+        section_path=(
+            "数学模型",
+            f"章节{index}",
+        ),
+        content=content,
+        page_start=index + 1,
+        page_end=index + 1,
+        pages=(index + 1,),
+        source_blocks=(f"{index + 1}:1",),
+        content_hash=f"hash-{index}",
+    )
+
+
+class TestSemanticRetriever(
+    unittest.TestCase
+):
+    def setUp(self) -> None:
+        self.chunks = [
+            make_chunk(
+                0,
+                "李雅普诺夫稳定性证明",
+            ),
+            make_chunk(
+                1,
+                "四阶Runge-Kutta数值方法",
+            ),
+            make_chunk(
+                2,
+                "同步误差收敛分析",
+            ),
+        ]
+
+        self.repository = Mock(
+            spec=ChunkRepository
+        )
+
+        self.encoder = Mock(
+            spec=TextEncoder
+        )
+
+        self.encoder.dimension = 2
+
+        self.retriever = SemanticRetriever(
+            chunk_repository=self.repository,
+            encoder=self.encoder,
+        )
+
+    def test_builds_index_from_all_chunks(
+        self,
+    ) -> None:
+        self.repository.list_all.return_value = (
+            self.chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [0.8, 0.2],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        count = self.retriever.build_index()
+
+        self.assertEqual(count, 3)
+        self.assertTrue(
+            self.retriever.is_built
+        )
+        self.assertEqual(
+            self.retriever.indexed_count,
+            3,
+        )
+
+        expected_texts = [
+            chunk.embedding_text
+            for chunk in self.chunks
+        ]
+
+        self.encoder.encode_passages.assert_called_once_with(
+            expected_texts
+        )
+
+    def test_builds_index_for_one_paper(
+        self,
+    ) -> None:
+        self.repository.list_by_paper.return_value = (
+            self.chunks[:2]
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        count = self.retriever.build_index(
+            paper_id="paper-1"
+        )
+
+        self.assertEqual(count, 2)
+
+        self.repository.list_by_paper.assert_called_once_with(
+            "paper-1"
+        )
+
+        self.repository.list_all.assert_not_called()
+
+    def test_searches_with_query_embedding(
+        self,
+    ) -> None:
+        self.repository.list_all.return_value = (
+            self.chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [0.8, 0.2],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        self.retriever.build_index()
+
+        self.encoder.encode_queries.return_value = (
+            np.array(
+                [[1.0, 0.0]],
+                dtype=np.float32,
+            )
+        )
+
+        results = self.retriever.search(
+            "  如何证明系统稳定？  ",
+            top_k=2,
+        )
+
+        self.encoder.encode_queries.assert_called_once_with(
+            ["如何证明系统稳定？"]
+        )
+
+        self.assertEqual(len(results), 2)
+
+        self.assertEqual(
+            results[0].chunk.id,
+            "paper-1-chunk-0",
+        )
+
+        self.assertEqual(
+            results[1].chunk.id,
+            "paper-1-chunk-2",
+        )
+
+    def test_requires_index_before_search(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "build_index",
+        ):
+            self.retriever.search(
+                "如何证明系统稳定？"
+            )
+
+    def test_rejects_blank_query(
+        self,
+    ) -> None:
+        self.repository.list_all.return_value = []
+        self.retriever.build_index()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "不能为空",
+        ):
+            self.retriever.search("   ")
+
+    def test_empty_database_builds_empty_index(
+        self,
+    ) -> None:
+        self.repository.list_all.return_value = []
+
+        count = self.retriever.build_index()
+
+        self.assertEqual(count, 0)
+        self.assertTrue(
+            self.retriever.is_built
+        )
+        self.assertEqual(
+            self.retriever.indexed_count,
+            0,
+        )
+
+        self.encoder.encode_passages.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
