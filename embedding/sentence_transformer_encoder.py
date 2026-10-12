@@ -1,9 +1,15 @@
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from embedding.base import TextEncoder
+
+
+if TYPE_CHECKING:
+    from sentence_transformers import (
+        SentenceTransformer,
+    )
 
 
 DEFAULT_MODEL_NAME = (
@@ -20,7 +26,7 @@ class SentenceTransformerEncoder(TextEncoder):
         *,
         device: str | None = None,
         batch_size: int = 32,
-        model: SentenceTransformer | None = None,
+        model: "SentenceTransformer | None" = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError(
@@ -29,14 +35,17 @@ class SentenceTransformerEncoder(TextEncoder):
 
         self.batch_size = batch_size
 
-        self.model = (
-            model
-            if model is not None
-            else SentenceTransformer(
+        if model is None:
+            from sentence_transformers import (
+                SentenceTransformer,
+            )
+
+            model = SentenceTransformer(
                 model_name,
                 device=device,
             )
-        )
+
+        self.model = model
 
     @property
     def dimension(self) -> int:
