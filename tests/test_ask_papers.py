@@ -103,11 +103,19 @@ class TestAskPapersCommand(
             mock_encoder_class.return_value
         )
 
+        encoder.identifier = (
+            "test-encoder"
+        )
+
         retriever = (
             mock_retriever_class.return_value
         )
 
         retriever.build_index.return_value = 10
+
+        retriever.last_build_used_cache = (
+            False
+        )
 
         chat_client = (
             mock_chat_client_class.return_value
@@ -176,6 +184,11 @@ class TestAskPapersCommand(
             output.getvalue(),
         )
 
+        self.assertIn(
+            "已重新计算并写入缓存",
+            output.getvalue(),
+        )
+
         connection.close.assert_called_once()
 
         self.assertIsNotNone(encoder)
@@ -203,6 +216,14 @@ class TestAskPapersCommand(
             connection
         )
 
+        encoder = (
+            mock_encoder_class.return_value
+        )
+
+        encoder.identifier = (
+            "test-encoder"
+        )
+
         retriever = (
             mock_retriever_class.return_value
         )
@@ -220,6 +241,10 @@ class TestAskPapersCommand(
         self.assertEqual(exit_code, 1)
 
         connection.close.assert_called_once()
+
+        retriever.build_index.assert_called_once_with(
+            paper_id=None
+        )
 
     def test_rejects_missing_database(
         self,

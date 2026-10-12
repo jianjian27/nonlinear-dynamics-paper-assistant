@@ -32,6 +32,9 @@ from rag.prompt import (
 from retrieval.semantic_retriever import (
     SemanticRetriever,
 )
+from embedding.vector_cache import (
+    VectorCache,
+)
 
 
 def shorten_text(
@@ -109,6 +112,15 @@ def create_argument_parser(
         help=(
             "Embedding模型运行设备，"
             "例如cuda或cpu。"
+        ),
+    )
+
+    parser.add_argument(
+        "--vector-cache-directory",
+        default="data/vector_indexes",
+        help=(
+            "本地向量缓存根目录，默认是"
+            " data/vector_indexes。"
         ),
     )
 
@@ -217,9 +229,23 @@ def main(
             device=options.device,
         )
 
+        cache_scope = (
+            "all"
+            if options.paper_id is None
+            else f"paper:{options.paper_id}"
+        )
+
+        vector_cache = VectorCache.for_index(
+            options.vector_cache_directory,
+            model_name=encoder.identifier,
+            scope=cache_scope,
+            source_id=str(database_path),
+        )
+
         retriever = SemanticRetriever(
             chunk_repository=chunk_repository,
             encoder=encoder,
+            vector_cache=vector_cache,
         )
 
         print("正在读取Chunk并构建向量索引……")
@@ -227,6 +253,16 @@ def main(
         indexed_count = retriever.build_index(
             paper_id=options.paper_id
         )
+
+        if indexed_count > 0:
+            if retriever.last_build_used_cache:
+                print(
+                    "向量状态：已从磁盘缓存加载。"
+                )
+            else:
+                print(
+                    "向量状态：已重新计算并写入缓存。"
+                )
 
         if indexed_count == 0:
             print(

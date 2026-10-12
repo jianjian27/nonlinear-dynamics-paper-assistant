@@ -228,6 +228,58 @@ class TestVectorCache(
                 scope="all",
             )
 
+    def test_creates_stable_cache_directory(
+        self,
+    ) -> None:
+        root = Path(
+            self.temporary_directory.name
+        )
+
+        first_cache = VectorCache.for_index(
+            root,
+            model_name="test-model",
+            scope="all",
+            source_id="database-a",
+        )
+
+        second_cache = VectorCache.for_index(
+            root,
+            model_name="test-model",
+            scope="all",
+            source_id="database-a",
+        )
+
+        self.assertEqual(
+            first_cache.directory,
+            second_cache.directory,
+        )
+
+    def test_uses_different_directory_for_scope(
+        self,
+    ) -> None:
+        root = Path(
+            self.temporary_directory.name
+        )
+
+        all_cache = VectorCache.for_index(
+            root,
+            model_name="test-model",
+            scope="all",
+            source_id="database-a",
+        )
+
+        paper_cache = VectorCache.for_index(
+            root,
+            model_name="test-model",
+            scope="paper:paper-1",
+            source_id="database-a",
+        )
+
+        self.assertNotEqual(
+            all_cache.directory,
+            paper_cache.directory,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

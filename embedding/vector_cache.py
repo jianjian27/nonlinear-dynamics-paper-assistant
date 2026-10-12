@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from domain.chunk import Chunk
+from hashlib import sha256
 
 
 CACHE_FORMAT_VERSION = 1
@@ -12,6 +13,61 @@ CACHE_FORMAT_VERSION = 1
 
 class VectorCache:
     """在本地磁盘保存和加载Chunk向量。"""
+
+    @classmethod
+    def for_index(
+        cls,
+        root_directory: str | Path,
+        *,
+        model_name: str,
+        scope: str,
+        source_id: str,
+    ) -> "VectorCache":
+        """为指定数据源、模型和范围创建缓存。"""
+
+        cleaned_model_name = (
+            model_name.strip()
+        )
+
+        cleaned_scope = (
+            scope.strip()
+        )
+
+        cleaned_source_id = (
+            source_id.strip()
+        )
+
+        if not cleaned_model_name:
+            raise ValueError(
+                "Embedding模型名称不能为空。"
+            )
+
+        if not cleaned_scope:
+            raise ValueError(
+                "向量缓存范围不能为空。"
+            )
+
+        if not cleaned_source_id:
+            raise ValueError(
+                "向量缓存数据源不能为空。"
+            )
+
+        cache_identity = json.dumps(
+            {
+                "model_name": cleaned_model_name,
+                "scope": cleaned_scope,
+                "source_id": cleaned_source_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        cache_key = sha256(cache_identity.encode("utf-8")).hexdigest()[:24]
+
+        return cls(
+            Path(root_directory) / cache_key
+        )
+
 
     def __init__(
         self,
