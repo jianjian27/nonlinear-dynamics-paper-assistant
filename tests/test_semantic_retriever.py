@@ -311,8 +311,8 @@ class TestSemanticRetriever(
             result_ids,
         )
 
-    def test_keeps_references_for_reference_query(
-        self,
+    def test_returns_only_references_for_reference_query(
+            self,
     ) -> None:
         chunks = [
             make_reference_chunk(
@@ -332,8 +332,8 @@ class TestSemanticRetriever(
         self.encoder.encode_passages.return_value = (
             np.array(
                 [
+                    [0.8, 0.2],
                     [1.0, 0.0],
-                    [0.5, 0.5],
                 ],
                 dtype=np.float32,
             )
@@ -350,7 +350,7 @@ class TestSemanticRetriever(
 
         results = self.retriever.search(
             "论文引用了哪些参考文献？",
-            top_k=1,
+            top_k=2,
         )
 
         self.assertEqual(

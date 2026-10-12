@@ -115,13 +115,18 @@ class SemanticRetriever:
                 "top_k必须大于0。"
             )
 
-        should_include_references = (
-            include_references
-            if include_references is not None
-            else query_requests_references(
-                cleaned_query
+        if include_references is None:
+            reference_mode = (
+                "only"
+                if query_requests_references(
+                    cleaned_query
+                )
+                else "exclude"
             )
-        )
+        elif include_references:
+            reference_mode = "include"
+        else:
+            reference_mode = "exclude"
 
         query_vectors = (
             self.encoder.encode_queries(
@@ -143,7 +148,7 @@ class SemanticRetriever:
 
         candidate_count = (
             top_k
-            if should_include_references
+            if reference_mode == "include"
             else max(
                 self.indexed_count,
                 1,
@@ -155,15 +160,23 @@ class SemanticRetriever:
             top_k=candidate_count,
         )
 
-        if should_include_references:
-            return candidates[:top_k]
-
-        filtered_results = [
-            result
-            for result in candidates
-            if not is_reference_chunk(
-                result.chunk
-            )
-        ]
+        if reference_mode == "only":
+            filtered_results = [
+                result
+                for result in candidates
+                if is_reference_chunk(
+                    result.chunk
+                )
+            ]
+        elif reference_mode == "exclude":
+            filtered_results = [
+                result
+                for result in candidates
+                if not is_reference_chunk(
+                    result.chunk
+                )
+            ]
+        else:
+            filtered_results = candidates
 
         return filtered_results[:top_k]
