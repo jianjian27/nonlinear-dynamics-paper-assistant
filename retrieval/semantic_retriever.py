@@ -1,11 +1,14 @@
 from database.chunk_repository import (
     ChunkRepository,
 )
-from domain.chunk import Chunk
 from embedding.base import TextEncoder
 from embedding.vector_index import (
     InMemoryVectorIndex,
     VectorSearchResult,
+)
+from retrieval.content_filter import (
+    is_reference_chunk,
+    query_requests_references,
 )
 
 
@@ -86,8 +89,14 @@ class SemanticRetriever:
         query: str,
         *,
         top_k: int = 5,
+        include_references: bool | None = None,
     ) -> list[VectorSearchResult]:
-        """根据自然语言问题检索相关Chunk。"""
+        """
+        根据自然语言问题检索相关Chunk。
+
+        include_references为None时，根据问题内容
+        自动判断是否需要保留参考文献。
+        """
 
         if not self._is_built:
             raise RuntimeError(
@@ -100,6 +109,19 @@ class SemanticRetriever:
             raise ValueError(
                 "查询问题不能为空。"
             )
+
+        if top_k <= 0:
+            raise ValueError(
+                "top_k必须大于0。"
+            )
+
+        should_include_references = (
+            include_references
+            if include_references is not None
+            else query_requests_references(
+                cleaned_query
+            )
+        )
 
         query_vectors = (
             self.encoder.encode_queries(
@@ -119,8 +141,29 @@ class SemanticRetriever:
                 f"实际 {query_vectors.shape}。"
             )
 
-        return self._index.search(
-            query_vector=query_vectors[0],
-            top_k=top_k,
+        candidate_count = (
+            top_k
+            if should_include_references
+            else max(
+                self.indexed_count,
+                1,
+            )
         )
 
+        candidates = self._index.search(
+            query_vector=query_vectors[0],
+            top_k=candidate_count,
+        )
+
+        if should_include_references:
+            return candidates[:top_k]
+
+        filtered_results = [
+            result
+            for result in candidates
+            if not is_reference_chunk(
+                result.chunk
+            )
+        ]
+
+        return filtered_results[:top_k]

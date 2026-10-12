@@ -37,6 +37,25 @@ def make_chunk(
     )
 
 
+def make_reference_chunk(
+    index: int,
+    content: str,
+) -> Chunk:
+    return Chunk(
+        id=f"paper-1-reference-{index}",
+        paper_id="paper-1",
+        chunk_index=index,
+        section_title="参考文献：",
+        section_path=("参考文献：",),
+        content=content,
+        page_start=index + 1,
+        page_end=index + 1,
+        pages=(index + 1,),
+        source_blocks=(f"{index + 1}:1",),
+        content_hash=f"reference-hash-{index}",
+    )
+
+
 class TestSemanticRetriever(
     unittest.TestCase
 ):
@@ -226,6 +245,123 @@ class TestSemanticRetriever(
         )
 
         self.encoder.encode_passages.assert_not_called()
+
+    def test_excludes_reference_chunks_for_normal_query(
+        self,
+    ) -> None:
+        chunks = [
+            make_reference_chunk(
+                0,
+                "李雅普诺夫稳定性参考文献",
+            ),
+            make_chunk(
+                1,
+                "正文中的李雅普诺夫稳定性分析",
+            ),
+            make_chunk(
+                2,
+                "正文中的数值仿真结果",
+            ),
+        ]
+
+        self.repository.list_all.return_value = (
+            chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.9, 0.1],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        self.retriever.build_index()
+
+        self.encoder.encode_queries.return_value = (
+            np.array(
+                [[1.0, 0.0]],
+                dtype=np.float32,
+            )
+        )
+
+        results = self.retriever.search(
+            "论文如何分析系统稳定性？",
+            top_k=2,
+        )
+
+        result_ids = [
+            result.chunk.id
+            for result in results
+        ]
+
+        self.assertEqual(
+            result_ids,
+            [
+                "paper-1-chunk-1",
+                "paper-1-chunk-2",
+            ],
+        )
+
+        self.assertNotIn(
+            "paper-1-reference-0",
+            result_ids,
+        )
+
+    def test_keeps_references_for_reference_query(
+        self,
+    ) -> None:
+        chunks = [
+            make_reference_chunk(
+                0,
+                "李雅普诺夫稳定性参考文献",
+            ),
+            make_chunk(
+                1,
+                "正文中的稳定性分析",
+            ),
+        ]
+
+        self.repository.list_all.return_value = (
+            chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.5, 0.5],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        self.retriever.build_index()
+
+        self.encoder.encode_queries.return_value = (
+            np.array(
+                [[1.0, 0.0]],
+                dtype=np.float32,
+            )
+        )
+
+        results = self.retriever.search(
+            "论文引用了哪些参考文献？",
+            top_k=1,
+        )
+
+        self.assertEqual(
+            len(results),
+            1,
+        )
+
+        self.assertEqual(
+            results[0].chunk.id,
+            "paper-1-reference-0",
+        )
 
 
 if __name__ == "__main__":
