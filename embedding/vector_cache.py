@@ -109,7 +109,7 @@ class VectorCache:
     ) -> None:
         """将Chunk向量和校验清单保存到磁盘。"""
 
-        self._validate_matadata(
+        self._validate_metadata(
             model_name=model_name,
             dimension=dimension,
             scope=scope,
@@ -215,7 +215,7 @@ class VectorCache:
     ) -> dict[str, object]:
         """生成用于检查缓存有效性的清单。"""
 
-        VectorCache._validate_matadata(
+        VectorCache._validate_metadata(
             model_name=model_name,
             dimension=dimension,
             scope=scope,
@@ -240,7 +240,7 @@ class VectorCache:
         }
 
     @staticmethod
-    def _validate_matadata(
+    def _validate_metadata(
         *,
         model_name: str,
         dimension: int,

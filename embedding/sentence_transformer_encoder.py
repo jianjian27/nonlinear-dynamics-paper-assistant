@@ -33,6 +33,19 @@ class SentenceTransformerEncoder(TextEncoder):
                 "batch_size必须大于0。"
             )
 
+        cleaned_model_name = (
+            model_name.strip()
+        )
+
+        if not cleaned_model_name:
+            raise ValueError(
+                "模型名称不能为空。"
+            )
+
+        self.model_name = (
+            cleaned_model_name
+        )
+
         self.batch_size = batch_size
 
         if model is None:
@@ -41,11 +54,19 @@ class SentenceTransformerEncoder(TextEncoder):
             )
 
             model = SentenceTransformer(
-                model_name,
+                self.model_name,
                 device=device,
             )
 
         self.model = model
+
+
+    @property
+    def identifier(self) -> str:
+        """返回Embedding模型名称。"""
+
+        return self.model_name
+
 
     @property
     def dimension(self) -> int:
