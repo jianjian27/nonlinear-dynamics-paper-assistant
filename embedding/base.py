@@ -9,6 +9,11 @@ class TextEncoder(ABC):
 
     @property
     @abstractmethod
+    def identifier(self) -> str:
+        """返回编码模型的稳定标识。"""
+
+    @property
+    @abstractmethod
     def dimension(self) -> int:
         """返回向量维度。"""
 

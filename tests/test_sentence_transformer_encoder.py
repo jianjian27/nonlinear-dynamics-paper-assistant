@@ -111,6 +111,19 @@ class TestSentenceTransformerEncoder(
                 batch_size=0,
             )
 
+    def test_exposes_model_identifier(
+        self,
+    ) -> None:
+        encoder = SentenceTransformerEncoder(
+            model_name="test-model",
+            model=self.model,
+        )
+
+        self.assertEqual(
+            encoder.identifier,
+            "test-model",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

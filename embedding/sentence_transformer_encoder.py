@@ -1,9 +1,15 @@
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from embedding.base import TextEncoder
+
+
+if TYPE_CHECKING:
+    from sentence_transformers import (
+        SentenceTransformer,
+    )
 
 
 DEFAULT_MODEL_NAME = (
@@ -20,23 +26,47 @@ class SentenceTransformerEncoder(TextEncoder):
         *,
         device: str | None = None,
         batch_size: int = 32,
-        model: SentenceTransformer | None = None,
+        model: "SentenceTransformer | None" = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError(
                 "batch_size必须大于0。"
             )
 
+        cleaned_model_name = (
+            model_name.strip()
+        )
+
+        if not cleaned_model_name:
+            raise ValueError(
+                "模型名称不能为空。"
+            )
+
+        self.model_name = (
+            cleaned_model_name
+        )
+
         self.batch_size = batch_size
 
-        self.model = (
-            model
-            if model is not None
-            else SentenceTransformer(
-                model_name,
+        if model is None:
+            from sentence_transformers import (
+                SentenceTransformer,
+            )
+
+            model = SentenceTransformer(
+                self.model_name,
                 device=device,
             )
-        )
+
+        self.model = model
+
+
+    @property
+    def identifier(self) -> str:
+        """返回Embedding模型名称。"""
+
+        return self.model_name
+
 
     @property
     def dimension(self) -> int:
