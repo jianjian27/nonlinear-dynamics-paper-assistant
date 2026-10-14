@@ -54,6 +54,24 @@ class PaperRepository:
             self.connection.rollback()
             raise
 
+    def list_all(
+        self,
+    ) -> list[Paper]:
+        """按照标题查询所有论文。"""
+
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM papers
+            ORDER BY title COLLATE NOCASE, id
+            """
+        ).fetchall()
+
+        return [
+            self._row_to_paper(row)
+            for row in rows
+        ]
+
     def get_by_id(
             self,
             paper_id: str

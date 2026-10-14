@@ -41,6 +41,75 @@ class TestPaperRepository(unittest.TestCase):
             doi="10.0000/example",
         )
 
+    def test_list_all_returns_empty_list(
+        self,
+    ) -> None:
+        """空数据库应返回空列表。"""
+
+        papers = self.repository.list_all()
+
+        self.assertEqual(
+            papers,
+            [],
+        )
+
+    def test_list_all_returns_papers_by_title(
+        self,
+    ) -> None:
+        """论文列表应按照标题排序。"""
+
+        second_paper = Paper(
+            id="paper-2",
+            title="忆阻神经网络研究",
+            authors=("作者乙",),
+            year=2025,
+            file_name="second.pdf",
+            file_path="papers/second.pdf",
+            file_hash="file-hash-2",
+        )
+
+        first_paper = Paper(
+            id="paper-1",
+            title="分数阶混沌系统研究",
+            authors=("作者甲",),
+            year=2026,
+            file_name="first.pdf",
+            file_path="papers/first.pdf",
+            file_hash="file-hash-1",
+        )
+
+        # 故意按照与标题排序相反的顺序写入。
+        self.repository.add(second_paper)
+        self.repository.add(first_paper)
+
+        papers = self.repository.list_all()
+
+        self.assertEqual(
+            len(papers),
+            2,
+        )
+
+        self.assertEqual(
+            [
+                paper.id
+                for paper in papers
+            ],
+            [
+                "paper-1",
+                "paper-2",
+            ],
+        )
+
+        self.assertEqual(
+            papers[0].title,
+            "分数阶混沌系统研究",
+        )
+
+        self.assertEqual(
+            papers[1].title,
+            "忆阻神经网络研究",
+        )
+
     def test_add_and_get_paper_by_id(self) -> None:
         original_paper = self.create_test_paper()
 
