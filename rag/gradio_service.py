@@ -37,6 +37,7 @@ from retrieval.semantic_retriever import (
 from domain.paper import (
     Paper,
 )
+from collections.abc import Sequence
 
 @dataclass(frozen=True)
 class GradioRagResult:
@@ -51,7 +52,7 @@ class RetrieverRuntime:
     """某个检索范围对应的运行状态。"""
 
     retriever: SemanticRetriever
-    paper_id: str | None
+    paper_ids: tuple[str, ...] | None
     indexed_count: int
     used_cache: bool
 
@@ -59,10 +60,18 @@ class RetrieverRuntime:
     def scope_key(self) -> str:
         """返回当前检索范围的唯一标识。"""
 
-        if self.paper_id is None:
+        if self.paper_ids is None:
             return "all"
 
-        return f"paper:{self.paper_id}"
+        if len(self.paper_ids) == 1:
+            return (
+                f"paper:{self.paper_ids[0]}"
+            )
+
+        return (
+            "papers:"
+            + ",".join(self.paper_ids)
+        )
 
 class GradioRagService:
     """为Gradio界面提供可复用的RAG问答服务。"""
@@ -169,12 +178,36 @@ class GradioRagService:
             f"（{detail_text}）"
         )
 
+    @staticmethod
+    def _normalize_paper_ids(
+        paper_ids: Sequence[str] | None,
+    ) -> tuple[str, ...] | None:
+        """清理、去重并排序论文ID。"""
+
+        if paper_ids is None:
+            return None
+
+        normalized_ids = tuple(
+            sorted(
+                {
+                    paper_id.strip()
+                    for paper_id in paper_ids
+                    if paper_id.strip()
+                }
+            )
+        )
+
+        if not normalized_ids:
+            return None
+
+        return normalized_ids
+
     def ask(
             self,
             question: str,
             *,
             top_k: int = 5,
-            paper_id: str | None = None,
+            paper_ids: Sequence[str] | None = None,
     ) -> GradioRagResult:
         """在指定论文范围内执行RAG问答。"""
 
@@ -190,20 +223,15 @@ class GradioRagService:
                 "Top-K必须大于0。"
             )
 
-        cleaned_paper_id = (
-            paper_id.strip()
-            if paper_id is not None
-            else None
+        normalized_paper_ids = (
+            self._normalize_paper_ids(
+                paper_ids
+            )
         )
 
-        if cleaned_paper_id == "":
-            cleaned_paper_id = None
-
         with self._lock:
-            runtime = (
-                self._get_or_build_retriever(
-                    paper_id=cleaned_paper_id
-                )
+            runtime = self._get_or_build_retriever(
+                paper_ids=normalized_paper_ids
             )
 
             connection = create_connection(
@@ -261,15 +289,21 @@ class GradioRagService:
     def _get_or_build_retriever(
             self,
             *,
-            paper_id: str | None,
+            paper_ids: tuple[str, ...] | None,
     ) -> RetrieverRuntime:
         """获取或构建指定范围的检索器。"""
 
-        scope_key = (
-            "all"
-            if paper_id is None
-            else f"paper:{paper_id}"
-        )
+        if paper_ids is None:
+            scope_key = "all"
+        elif len(paper_ids) == 1:
+            scope_key = (
+                f"paper:{paper_ids[0]}"
+            )
+        else:
+            scope_key = (
+                    "papers:"
+                    + ",".join(paper_ids)
+            )
 
         cached_runtime = (
             self._retriever_runtimes.get(
@@ -312,16 +346,27 @@ class GradioRagService:
                 vector_cache=vector_cache,
             )
 
-            indexed_count = (
-                retriever.build_index(
-                    paper_id=paper_id
+            if paper_ids is None:
+                indexed_count = (
+                    retriever.build_index()
                 )
-            )
+            elif len(paper_ids) == 1:
+                indexed_count = (
+                    retriever.build_index(
+                        paper_id=paper_ids[0]
+                    )
+                )
+            else:
+                indexed_count = (
+                    retriever.build_index(
+                        paper_ids=paper_ids
+                    )
+                )
         finally:
             connection.close()
 
         if indexed_count == 0:
-            if paper_id is None:
+            if paper_ids is None:
                 message = (
                     "论文数据库中没有"
                     "可检索的Chunk。"
@@ -336,11 +381,10 @@ class GradioRagService:
 
         runtime = RetrieverRuntime(
             retriever=retriever,
-            paper_id=paper_id,
+            paper_ids=paper_ids,
             indexed_count=indexed_count,
             used_cache=(
-                retriever
-                .last_build_used_cache
+                retriever.last_build_used_cache
             ),
         )
 
@@ -380,11 +424,15 @@ class GradioRagService:
             else "已重新计算并写入缓存"
         )
 
-        scope_text = (
-            "整个论文库"
-            if runtime.paper_id is None
-            else "指定论文"
-        )
+        if runtime.paper_ids is None:
+            scope_text = "整个论文库"
+        elif len(runtime.paper_ids) == 1:
+            scope_text = "1 篇指定论文"
+        else:
+            scope_text = (
+                f"{len(runtime.paper_ids)} "
+                "篇指定论文"
+            )
 
         return (
             f"检索范围：{scope_text}；"
@@ -395,7 +443,7 @@ class GradioRagService:
 
     @staticmethod
     def _render_evidence(rag_answer: RagAnswer) -> str:
-        """"把结构化证据转换成Mardown。"""
+        """"把结构化证据转换成Markdown。"""
 
         if rag_answer.context.is_empty:
             return (

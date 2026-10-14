@@ -183,34 +183,24 @@ def analyze_paper(
 knowledge_service = GradioRagService()
 
 
-ALL_PAPERS_SCOPE = "__all__"
-
 
 def load_knowledge_scope_choices(
 ) -> list[tuple[str, str]]:
-    """加载知识库问答可选择的论文范围。"""
-
-    choices = [
-        (
-            "整个论文库",
-            ALL_PAPERS_SCOPE,
-        )
-    ]
+    """加载知识库中可选择的论文。"""
 
     try:
-        choices.extend(
+        return (
             knowledge_service
             .list_paper_choices()
         )
     except FileNotFoundError:
-        # 数据库尚未创建时，网页仍然可以正常启动。
-        pass
-
-    return choices
+        # 数据库尚未创建时，
+        # 网页仍然可以正常启动。
+        return []
 
 def ask_paper_library(
     question,
-    paper_scope,
+    paper_scopes,
     top_k,
     progress=gr.Progress(),
 ):
@@ -230,15 +220,12 @@ def ask_paper_library(
             "等待输入问题。",
         )
 
-    paper_id = (
-        None
-        if (
-            paper_scope is None
-            or paper_scope
-            == ALL_PAPERS_SCOPE
+    paper_ids = [
+        str(paper_id)
+        for paper_id in (
+                paper_scopes or []
         )
-        else str(paper_scope)
-    )
+    ]
 
     try:
         progress(
@@ -249,7 +236,7 @@ def ask_paper_library(
         result = knowledge_service.ask(
             cleaned_question,
             top_k=int(top_k),
-            paper_id=paper_id,
+            paper_ids=paper_ids,
         )
 
         progress(
@@ -403,11 +390,12 @@ with gr.Blocks(
                             choices=(
                                 load_knowledge_scope_choices()
                             ),
-                            value=ALL_PAPERS_SCOPE,
-                            label="检索范围",
+                            value=[],
+                            multiselect=True,
+                            label="限定论文范围",
                             info=(
-                                "选择整个论文库，"
-                                "或者只检索某一篇论文。"
+                                "可选择一篇或多篇论文；"
+                                "不选择时检索整个论文库。"
                             ),
                         )
                     )

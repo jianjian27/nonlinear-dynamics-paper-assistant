@@ -273,7 +273,10 @@ class TestGradioRagService(
         fake_retriever = MagicMock()
         fake_runtime = RetrieverRuntime(
             retriever=fake_retriever,
-            paper_id="paper-001",
+            paper_ids=(
+                "paper-001",
+                "paper-002",
+            ),
             indexed_count=10,
             used_cache=True,
         )
@@ -303,7 +306,10 @@ class TestGradioRagService(
             result = service.ask(
                 "论文使用了什么方法？",
                 top_k=3,
-                paper_id="paper-001",
+                paper_ids=[
+                    "paper-002",
+                    "paper-001",
+                ],
             )
 
         answer_service.answer.assert_called_once_with(
@@ -339,11 +345,14 @@ class TestGradioRagService(
         )
 
         get_retriever.assert_called_once_with(
-            paper_id="paper-001"
+            paper_ids=(
+                "paper-001",
+                "paper-002",
+            )
         )
 
         self.assertIn(
-            "检索范围：指定论文",
+            "检索范围：2 篇指定论文",
             result.status_text,
         )
 
@@ -389,14 +398,20 @@ class TestGradioRagService(
                 first_runtime = (
                     service
                     ._get_or_build_retriever(
-                        paper_id="paper-001"
+                        paper_ids=(
+                            "paper-001",
+                            "paper-002",
+                        )
                     )
                 )
 
                 second_runtime = (
                     service
                     ._get_or_build_retriever(
-                        paper_id="paper-001"
+                        paper_ids=(
+                            "paper-001",
+                            "paper-002",
+                        )
                     )
                 )
 
@@ -406,7 +421,10 @@ class TestGradioRagService(
         )
 
         fake_retriever.build_index.assert_called_once_with(
-            paper_id="paper-001"
+            paper_ids=(
+                "paper-001",
+                "paper-002",
+            )
         )
 
         retriever_class.assert_called_once()
@@ -418,6 +436,61 @@ class TestGradioRagService(
 
         self.assertTrue(
             first_runtime.used_cache
+        )
+
+    def test_empty_selection_uses_all_papers(
+        self,
+    ) -> None:
+        """空论文选择应表示整个知识库。"""
+
+        service = GradioRagService(
+            database_path="test.db"
+        )
+
+        fake_retriever = MagicMock()
+
+        fake_runtime = RetrieverRuntime(
+            retriever=fake_retriever,
+            paper_ids=None,
+            indexed_count=20,
+            used_cache=True,
+        )
+
+        fake_connection = MagicMock()
+        fake_answer = self.create_answer()
+
+        with patch.object(
+            service,
+            "_get_or_build_retriever",
+            return_value=fake_runtime,
+        ) as get_retriever, patch(
+            "rag.gradio_service.create_connection",
+            return_value=fake_connection,
+        ), patch(
+            "rag.gradio_service.AliyunChatClient",
+        ), patch(
+            "rag.gradio_service.RagAnswerService",
+        ) as answer_service_class:
+            answer_service = (
+                answer_service_class.return_value
+            )
+
+            answer_service.answer.return_value = (
+                fake_answer
+            )
+
+            result = service.ask(
+                "论文使用了什么方法？",
+                paper_ids=[],
+            )
+
+        get_retriever.assert_called_once_with(
+            paper_ids=None
+        )
+
+        self.assertIn(
+            "检索范围：整个论文库",
+            result.status_text,
         )
 
 if __name__ == "__main__":
