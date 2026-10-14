@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import (
     MagicMock,
     patch,
+    sentinel,
 )
 
 from rag.answer_service import (
@@ -492,6 +493,157 @@ class TestGradioRagService(
             "检索范围：整个论文库",
             result.status_text,
         )
+
+    def test_ingests_uploaded_pdf(
+        self,
+    ) -> None:
+        """网页上传文件应保存并进入入库管道。"""
+
+        with TemporaryDirectory() as directory:
+            root_directory = Path(directory)
+
+            source_path = (
+                root_directory
+                / "uploaded.pdf"
+            )
+
+            source_path.write_bytes(
+                b"test pdf content"
+            )
+
+            database_path = (
+                root_directory
+                / "data"
+                / "papers.db"
+            )
+
+            storage_directory = (
+                root_directory
+                / "stored_papers"
+            )
+
+            service = GradioRagService(
+                database_path=database_path,
+                paper_storage_directory=(
+                    storage_directory
+                ),
+            )
+
+            service._retriever_runtimes[
+                "all"
+            ] = MagicMock()
+
+            fake_connection = MagicMock()
+            fake_pipeline = MagicMock()
+
+            fake_result = MagicMock()
+            fake_result.created = True
+
+            fake_pipeline.ingest.return_value = (
+                fake_result
+            )
+
+            with patch(
+                (
+                    "rag.gradio_service."
+                    "calculate_file_sha256"
+                ),
+                return_value="hash-001",
+            ), patch(
+                (
+                    "rag.gradio_service."
+                    "create_connection"
+                ),
+                return_value=fake_connection,
+            ), patch(
+                (
+                    "rag.gradio_service."
+                    "initialize_database"
+                ),
+            ) as initialize_database_mock, patch(
+                (
+                    "rag.gradio_service."
+                    "create_pdf_ingestion_pipeline"
+                ),
+                return_value=fake_pipeline,
+            ):
+                result = service.ingest_pdf(
+                    source_path,
+                    title="测试论文",
+                    authors=(
+                        "作者甲",
+                        "作者乙",
+                    ),
+                    year=2026,
+                    doi="10.0000/example",
+                )
+
+            stored_path = (
+                storage_directory
+                / "hash-001.pdf"
+            )
+
+            self.assertTrue(
+                stored_path.is_file()
+            )
+
+            self.assertEqual(
+                stored_path.read_bytes(),
+                b"test pdf content",
+            )
+
+            initialize_database_mock.assert_called_once_with(
+                fake_connection
+            )
+
+            fake_pipeline.ingest.assert_called_once_with(
+                pdf_path=stored_path,
+                title="测试论文",
+                authors=(
+                    "作者甲",
+                    "作者乙",
+                ),
+                year=2026,
+                doi="10.0000/example",
+            )
+
+            fake_connection.close.assert_called_once_with()
+
+            self.assertIs(
+                result,
+                fake_result,
+            )
+
+            self.assertEqual(
+                service._retriever_runtimes,
+                {},
+            )
+
+    def test_rejects_non_pdf_upload(
+        self,
+    ) -> None:
+        """网页入库服务只接受PDF文件。"""
+
+        with TemporaryDirectory() as directory:
+            file_path = (
+                Path(directory)
+                / "paper.txt"
+            )
+
+            file_path.write_text(
+                "not a pdf",
+                encoding="utf-8",
+            )
+
+            service = GradioRagService()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "只能导入PDF",
+            ):
+                service.ingest_pdf(
+                    file_path
+                )
 
 if __name__ == "__main__":
     unittest.main()

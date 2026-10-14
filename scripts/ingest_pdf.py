@@ -1,54 +1,15 @@
 import argparse
-import sqlite3
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from database.chunk_repository import ChunkRepository
 from database.connection import create_connection
-from database.paper_repository import PaperRepository
 from database.schema import initialize_database
-from database.section_repository import SectionRepository
-from ingestion.paper_content_ingestor import (
-    PaperContentIngestor,
-)
-from ingestion.paper_ingestor import PaperIngestor
-from ingestion.pdf_ingestion_pipeline import (
-    PdfIngestionPipeline,
+
+from ingestion.pipeline_factory import (
+    create_pdf_ingestion_pipeline,
 )
 
-
-def create_pipeline(
-    connection: sqlite3.Connection,
-) -> PdfIngestionPipeline:
-    """组装PDF结构化入库所需的对象。"""
-
-    paper_repository = PaperRepository(
-        connection
-    )
-
-    section_repository = SectionRepository(
-        connection
-    )
-
-    chunk_repository = ChunkRepository(
-        connection
-    )
-
-    paper_ingestor = PaperIngestor(
-        paper_repository
-    )
-
-    content_ingestor = PaperContentIngestor(
-        connection=connection,
-        paper_ingestor=paper_ingestor,
-        section_repository=section_repository,
-        chunk_repository=chunk_repository,
-    )
-
-    return PdfIngestionPipeline(
-        content_ingestor
-    )
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -164,8 +125,10 @@ def main(
 
         initialize_database(connection)
 
-        pipeline = create_pipeline(
-            connection
+        pipeline = (
+            create_pdf_ingestion_pipeline(
+                connection
+            )
         )
 
         result = pipeline.ingest(

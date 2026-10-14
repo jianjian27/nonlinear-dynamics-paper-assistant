@@ -39,6 +39,21 @@ from domain.paper import (
 )
 from collections.abc import Sequence
 
+from shutil import copy2
+
+from database.schema import (
+    initialize_database,
+)
+from ingestion.file_hash import (
+    calculate_file_sha256,
+)
+from ingestion.paper_content_ingestor import (
+    PaperContentIngestorResult,
+)
+from ingestion.pipeline_factory import (
+    create_pdf_ingestion_pipeline,
+)
+
 @dataclass(frozen=True)
 class GradioRagResult:
     """适合交给Gradio展示的RAG结果。"""
@@ -89,6 +104,9 @@ class GradioRagService:
         device: str | None = None,
         max_context_chars: int = 12000,
         max_chunk_chars: int = 3000,
+        paper_storage_directory: str | Path = (
+            "data/papers"
+        ),
     ) -> None:
         self.database_path = Path(
             database_path
@@ -97,6 +115,10 @@ class GradioRagService:
         self.vector_cache_directory = Path(
             vector_cache_directory
         )
+
+        self.paper_storage_directory = Path(
+            paper_storage_directory
+        ).resolve()
 
         self.embedding_model = embedding_model
         self.device = device
@@ -115,6 +137,108 @@ class GradioRagService:
 
         # 防止多个网页请求同时初始化模型或调用检索器。
         self._lock = Lock()
+
+    def ingest_pdf(
+        self,
+        pdf_path: str | Path,
+        *,
+        title: str | None = None,
+        authors: Sequence[str] = (),
+        year: int | None = None,
+        doi: str | None = None,
+    ) -> PaperContentIngestorResult:
+        """保存上传的PDF并执行结构化入库。"""
+
+        source_path = Path(
+            pdf_path
+        ).resolve()
+
+        if not source_path.is_file():
+            raise FileNotFoundError(
+                "找不到上传的PDF文件："
+                f"{source_path}"
+            )
+
+        if source_path.suffix.lower() != ".pdf":
+            raise ValueError(
+                "只能导入PDF文件。"
+            )
+
+        cleaned_title = (
+            title.strip()
+            if title and title.strip()
+            else source_path.stem
+        )
+
+        cleaned_authors = tuple(
+            author.strip()
+            for author in authors
+            if author.strip()
+        )
+
+        cleaned_doi = (
+            doi.strip()
+            if doi and doi.strip()
+            else None
+        )
+
+        file_hash = calculate_file_sha256(
+            source_path
+        )
+
+        self.paper_storage_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        stored_path = (
+            self.paper_storage_directory
+            / f"{file_hash}.pdf"
+        )
+
+        if not stored_path.exists():
+            copy2(
+                source_path,
+                stored_path,
+            )
+
+        self.database_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        with self._lock:
+            connection = create_connection(
+                self.database_path
+            )
+
+            try:
+                initialize_database(
+                    connection
+                )
+
+                pipeline = (
+                    create_pdf_ingestion_pipeline(
+                        connection
+                    )
+                )
+
+                result = pipeline.ingest(
+                    pdf_path=stored_path,
+                    title=cleaned_title,
+                    authors=cleaned_authors,
+                    year=year,
+                    doi=cleaned_doi,
+                )
+            finally:
+                connection.close()
+
+            if result.created:
+                # 数据库内容已经变化，
+                # 旧的内存索引不能继续使用。
+                self._retriever_runtimes.clear()
+
+        return result
 
     def list_paper_choices(
         self,

@@ -1,4 +1,6 @@
 import gradio as gr
+import re
+from pathlib import Path
 
 from models.deepseek_api import (
     ModelServiceError,
@@ -198,6 +200,112 @@ def load_knowledge_scope_choices(
         # 网页仍然可以正常启动。
         return []
 
+def ingest_paper_from_web(
+    pdf_file,
+    title,
+    authors_text,
+    year_text,
+    doi,
+    progress=gr.Progress(),
+):
+    """把网页上传的PDF导入知识库。"""
+
+    if pdf_file is None:
+        return (
+            "## ⚠️ 请先选择PDF文件",
+            gr.update(),
+        )
+
+    try:
+        pdf_path = Path(
+            getattr(
+                pdf_file,
+                "name",
+                pdf_file,
+            )
+        )
+
+        authors = tuple(
+            author.strip()
+            for author in re.split(
+                r"[,，;；\n]+",
+                authors_text or "",
+            )
+            if author.strip()
+        )
+
+        cleaned_year = (
+            str(year_text or "").strip()
+        )
+
+        if cleaned_year:
+            try:
+                year = int(cleaned_year)
+            except ValueError as exc:
+                raise ValueError(
+                    "发表年份必须是整数。"
+                ) from exc
+
+            if not 1000 <= year <= 9999:
+                raise ValueError(
+                    "请输入有效的四位发表年份。"
+                )
+        else:
+            year = None
+
+        progress(
+            0.1,
+            desc="正在保存并解析PDF……",
+        )
+
+        result = (
+            knowledge_service.ingest_pdf(
+                pdf_path,
+                title=title,
+                authors=authors,
+                year=year,
+                doi=doi,
+            )
+        )
+
+        progress(
+            1.0,
+            desc="论文入库完成",
+        )
+
+        status = (
+            "新论文已成功入库"
+            if result.created
+            else "该PDF已经存在于知识库中"
+        )
+
+        message = (
+            f"## ✅ {status}\n\n"
+            f"- 标题：{result.paper.title}\n"
+            f"- 论文 ID：`{result.paper.id}`\n"
+            f"- 章节数量：{len(result.sections)}\n"
+            f"- Chunk 数量：{len(result.chunks)}"
+        )
+
+        return (
+            message,
+            gr.update(
+                choices=(
+                    load_knowledge_scope_choices()
+                ),
+                value=[],
+            ),
+        )
+
+    except Exception as exc:
+        return (
+            (
+                "## ❌ 论文入库失败\n\n"
+                f"{type(exc).__name__}: {exc}"
+            ),
+            gr.update(),
+        )
+
 def ask_paper_library(
     question,
     paper_scopes,
@@ -382,6 +490,67 @@ with gr.Blocks(
 """
             )
 
+            with gr.Accordion(
+                "➕ 上传论文到知识库",
+                open=False,
+            ):
+                gr.Markdown(
+                    (
+                        "上传后系统会自动解析章节、"
+                        "生成Chunk并写入本地知识库。"
+                    )
+                )
+
+                with gr.Row():
+                    knowledge_pdf_input = gr.File(
+                        label="论文PDF",
+                        file_types=[".pdf"],
+                        type="filepath",
+                    )
+
+                    with gr.Column():
+                        knowledge_title_input = (
+                            gr.Textbox(
+                                label="论文标题（可选）",
+                                placeholder=(
+                                    "留空时使用文件名"
+                                ),
+                            )
+                        )
+
+                        knowledge_authors_input = (
+                            gr.Textbox(
+                                label="作者（可选）",
+                                placeholder=(
+                                    "多位作者使用逗号分隔"
+                                ),
+                            )
+                        )
+
+                        knowledge_year_input = (
+                            gr.Textbox(
+                                label="发表年份（可选）",
+                                placeholder="例如：2026",
+                            )
+                        )
+
+                        knowledge_doi_input = (
+                            gr.Textbox(
+                                label="DOI（可选）",
+                            )
+                        )
+
+                knowledge_ingest_button = gr.Button(
+                    "📥 导入知识库",
+                    variant="secondary",
+                )
+
+                knowledge_ingest_status = (
+                    gr.Markdown(
+                        "尚未导入论文。"
+                    )
+                )
+
             with gr.Row():
 
                 with gr.Column(scale=1):
@@ -417,6 +586,21 @@ with gr.Blocks(
                         value=5,
                         step=1,
                         label="检索证据数量 Top-K",
+                    )
+
+                    knowledge_ingest_button.click(
+                        fn=ingest_paper_from_web,
+                        inputs=[
+                            knowledge_pdf_input,
+                            knowledge_title_input,
+                            knowledge_authors_input,
+                            knowledge_year_input,
+                            knowledge_doi_input,
+                        ],
+                        outputs=[
+                            knowledge_ingest_status,
+                            knowledge_scope,
+                        ],
                     )
 
                     knowledge_ask_button = (
