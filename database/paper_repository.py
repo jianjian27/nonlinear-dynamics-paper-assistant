@@ -2,6 +2,9 @@ import json
 import sqlite3
 
 from domain.paper import Paper
+from domain.paper_overview import (
+    PaperOverview,
+)
 
 
 class PaperRepository:
@@ -53,6 +56,99 @@ class PaperRepository:
         except sqlite3.Error:
             self.connection.rollback()
             raise
+
+    def list_all(
+        self,
+    ) -> list[Paper]:
+        """按照标题查询所有论文。"""
+
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM papers
+            ORDER BY title COLLATE NOCASE, id
+            """
+        ).fetchall()
+
+        return [
+            self._row_to_paper(row)
+            for row in rows
+        ]
+
+    def list_all_with_counts(
+        self,
+    ) -> list[PaperOverview]:
+        """查询所有论文及其章节和Chunk数量。"""
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                papers.*,
+
+                (
+                    SELECT COUNT(*)
+                    FROM sections
+                    WHERE sections.paper_id = papers.id
+                ) AS section_count,
+
+                (
+                    SELECT COUNT(*)
+                    FROM chunks
+                    WHERE chunks.paper_id = papers.id
+                ) AS chunk_count
+
+            FROM papers
+            ORDER BY title COLLATE NOCASE, id
+            """
+        ).fetchall()
+
+        return [
+            PaperOverview(
+                paper=self._row_to_paper(
+                    row
+                ),
+                section_count=(
+                    row["section_count"]
+                ),
+                chunk_count=(
+                    row["chunk_count"]
+                ),
+            )
+            for row in rows
+        ]
+
+    def delete_by_id(
+        self,
+        paper_id: str,
+        *,
+        commit: bool = True,
+    ) -> Paper | None:
+        """删除论文并返回被删除的论文。"""
+
+        paper = self.get_by_id(
+            paper_id
+        )
+
+        if paper is None:
+            return None
+
+        try:
+            self.connection.execute(
+                """
+                DELETE FROM papers
+                WHERE id = ?
+                """,
+                (paper_id,),
+            )
+
+            if commit:
+                self.connection.commit()
+
+        except sqlite3.Error:
+            self.connection.rollback()
+            raise
+
+        return paper
 
     def get_by_id(
             self,

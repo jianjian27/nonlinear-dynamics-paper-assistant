@@ -4,6 +4,10 @@ import sqlite3
 from domain.chunk import Chunk
 from domain.section_record import SectionRecord
 
+from collections.abc import (
+    Sequence,
+)
+
 
 class ChunkRepository:
     """负责 Chunk 的数据库读写。"""
@@ -122,6 +126,43 @@ class ChunkRepository:
             ORDER BY chunk_index
             """,
             (paper_id,),
+        ).fetchall()
+
+        return [
+            self._row_to_chunk(row)
+            for row in rows
+        ]
+
+    def list_by_paper_ids(
+        self,
+        paper_ids: Sequence[str],
+    ) -> list[Chunk]:
+        """查询多篇指定论文的所有Chunk。"""
+
+        normalized_ids = tuple(
+            dict.fromkeys(
+                paper_id.strip()
+                for paper_id in paper_ids
+                if paper_id.strip()
+            )
+        )
+
+        if not normalized_ids:
+            return []
+
+        placeholders = ", ".join(
+            "?"
+            for _ in normalized_ids
+        )
+
+        rows = self.connection.execute(
+            f"""
+            SELECT *
+            FROM chunks
+            WHERE paper_id IN ({placeholders})
+            ORDER BY paper_id, chunk_index
+            """,
+            normalized_ids,
         ).fetchall()
 
         return [

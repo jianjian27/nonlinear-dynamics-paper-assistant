@@ -327,5 +327,130 @@ class TestChunkRepository(unittest.TestCase):
             chunks,
         )
 
+    def test_empty_paper_ids_return_empty_list(
+        self,
+    ) -> None:
+        """没有论文ID时应返回空列表。"""
+
+        chunks = (
+            self.chunk_repository
+            .list_by_paper_ids([])
+        )
+
+        self.assertEqual(
+            chunks,
+            [],
+        )
+
+    def test_lists_chunks_by_paper_ids(
+        self,
+    ) -> None:
+        """只返回指定论文的Chunk。"""
+
+        first_section_tree = (
+            self.create_section_tree()
+        )
+
+        first_section_records = (
+            self.section_repository.add_tree(
+                paper_id="paper-1",
+                root_sections=(
+                    first_section_tree
+                ),
+            )
+        )
+
+        first_chunks = build_chunks(
+            root_sections=(
+                first_section_tree
+            ),
+            paper_id="paper-1",
+            max_chars=100,
+            overlap_chars=0,
+        )
+
+        self.chunk_repository.add_many(
+            chunks=first_chunks,
+            sections=first_section_records,
+        )
+
+        PaperRepository(
+            self.connection
+        ).add(
+            Paper(
+                id="paper-2",
+                title="第二篇测试论文",
+                authors=("作者乙",),
+                file_name="paper-2.pdf",
+                file_path="papers/paper-2.pdf",
+                file_hash="file-hash-2",
+            )
+        )
+
+        second_section_tree = (
+            self.create_section_tree()
+        )
+
+        second_section_records = (
+            self.section_repository.add_tree(
+                paper_id="paper-2",
+                root_sections=(
+                    second_section_tree
+                ),
+            )
+        )
+
+        second_chunks = build_chunks(
+            root_sections=(
+                second_section_tree
+            ),
+            paper_id="paper-2",
+            max_chars=100,
+            overlap_chars=0,
+        )
+
+        self.chunk_repository.add_many(
+            chunks=second_chunks,
+            sections=second_section_records,
+        )
+
+        saved_chunks = (
+            self.chunk_repository
+            .list_by_paper_ids(
+                [
+                    " paper-2 ",
+                    "paper-1",
+                    "paper-2",
+                ]
+            )
+        )
+
+        self.assertEqual(
+            len(saved_chunks),
+            (
+                len(first_chunks)
+                + len(second_chunks)
+            ),
+        )
+
+        self.assertEqual(
+            {
+                chunk.paper_id
+                for chunk in saved_chunks
+            },
+            {
+                "paper-1",
+                "paper-2",
+            },
+        )
+
+        self.assertEqual(
+            saved_chunks,
+            (
+                first_chunks
+                + second_chunks
+            ),
+        )
+
 if __name__ == "__main__":
     unittest.main()

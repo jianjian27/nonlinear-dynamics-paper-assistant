@@ -13,6 +13,9 @@ from retrieval.content_filter import (
 from embedding.vector_cache import (
     VectorCache,
 )
+from collections.abc import (
+    Sequence,
+)
 
 
 class SemanticRetriever:
@@ -34,7 +37,9 @@ class SemanticRetriever:
         )
 
         self._is_built = False
-        self._paper_id: str | None = None
+        self._paper_ids: (
+                tuple[str, ...] | None
+        ) = None
         self._last_build_used_cache = False
 
     @property
@@ -58,23 +63,108 @@ class SemanticRetriever:
     def build_index(
             self,
             paper_id: str | None = None,
+            *,
+            paper_ids: (
+                    Sequence[str] | None
+            ) = None,
     ) -> int:
-        """从SQLite和向量缓存构建内存索引。"""
+        """从指定论文范围构建内存索引。"""
 
-        if paper_id is None:
-            chunks = (
-                self.chunk_repository.list_all()
+        if (
+                paper_id is not None
+                and paper_ids is not None
+        ):
+            raise ValueError(
+                "paper_id和paper_ids"
+                "不能同时使用。"
             )
-            cache_scope = "all"
-        else:
-            chunks = (
-                self.chunk_repository.list_by_paper(
-                    paper_id
+
+        if paper_ids is not None:
+            normalized_ids = tuple(
+                sorted(
+                    {
+                        current_id.strip()
+                        for current_id
+                        in paper_ids
+                        if current_id.strip()
+                    }
                 )
             )
-            cache_scope = (
-                f"paper:{paper_id}"
+
+            if not normalized_ids:
+                chunks = []
+                cache_scope = (
+                    "papers:empty"
+                )
+
+            elif len(normalized_ids) == 1:
+                only_paper_id = (
+                    normalized_ids[0]
+                )
+
+                chunks = (
+                    self.chunk_repository
+                    .list_by_paper(
+                        only_paper_id
+                    )
+                )
+
+                cache_scope = (
+                    f"paper:{only_paper_id}"
+                )
+
+            else:
+                chunks = (
+                    self.chunk_repository
+                    .list_by_paper_ids(
+                        normalized_ids
+                    )
+                )
+
+                cache_scope = (
+                        "papers:"
+                        + ",".join(
+                    normalized_ids
+                )
+                )
+
+            active_paper_ids = (
+                normalized_ids
             )
+
+        elif paper_id is not None:
+            cleaned_paper_id = (
+                paper_id.strip()
+            )
+
+            if not cleaned_paper_id:
+                raise ValueError(
+                    "paper_id不能为空。"
+                )
+
+            chunks = (
+                self.chunk_repository
+                .list_by_paper(
+                    cleaned_paper_id
+                )
+            )
+
+            cache_scope = (
+                f"paper:{cleaned_paper_id}"
+            )
+
+            active_paper_ids = (
+                cleaned_paper_id,
+            )
+
+        else:
+            chunks = (
+                self.chunk_repository
+                .list_all()
+            )
+
+            cache_scope = "all"
+            active_paper_ids = None
 
         new_index = InMemoryVectorIndex(
             dimension=self.encoder.dimension
@@ -100,7 +190,9 @@ class SemanticRetriever:
                 )
 
             if passage_vectors is not None:
-                self._last_build_used_cache = True
+                self._last_build_used_cache = (
+                    True
+                )
             else:
                 passage_texts = [
                     chunk.embedding_text
@@ -108,7 +200,8 @@ class SemanticRetriever:
                 ]
 
                 passage_vectors = (
-                    self.encoder.encode_passages(
+                    self.encoder
+                    .encode_passages(
                         passage_texts
                     )
                 )
@@ -116,7 +209,9 @@ class SemanticRetriever:
                 if self.vector_cache is not None:
                     self.vector_cache.save(
                         chunks=chunks,
-                        vectors=passage_vectors,
+                        vectors=(
+                            passage_vectors
+                        ),
                         model_name=(
                             self.encoder.identifier
                         ),
@@ -132,7 +227,7 @@ class SemanticRetriever:
             )
 
         self._index = new_index
-        self._paper_id = paper_id
+        self._paper_ids = active_paper_ids
         self._is_built = True
 
         return len(chunks)
@@ -199,13 +294,21 @@ class SemanticRetriever:
                 f"实际 {query_vectors.shape}。"
             )
 
+        should_diversify = (
+            self._paper_ids is not None
+            and len(self._paper_ids) > 1
+        )
+
         candidate_count = (
-            top_k
-            if reference_mode == "include"
-            else max(
+            max(
                 self.indexed_count,
                 1,
             )
+            if (
+                reference_mode != "include"
+                or should_diversify
+            )
+            else top_k
         )
 
         candidates = self._index.search(
@@ -232,4 +335,83 @@ class SemanticRetriever:
         else:
             filtered_results = candidates
 
+        if should_diversify:
+            return (
+                self._diversify_by_paper(
+                    filtered_results,
+                    top_k=top_k,
+                )
+            )
+
         return filtered_results[:top_k]
+
+    @staticmethod
+    def _diversify_by_paper(
+            results: Sequence[VectorSearchResult],
+            *,
+            top_k: int
+    ) -> list[VectorSearchResult]:
+        """轮流从不同论文中选择检索结果。"""
+
+        results_by_paper: dict[
+            str,
+            list[VectorSearchResult],
+        ] = {}
+
+        for result in results:
+            paper_id = (
+                result.chunk.paper_id
+            )
+
+            results_by_paper.setdefault(
+                paper_id,
+                [],
+            ).append(result)
+
+        # 字典保持插入顺序，因此最高分结果所属的论文会优先参与第一轮选择。
+        ordered_paper_ids = list(
+            results_by_paper
+        )
+
+        positions = {
+            paper_id : 0
+            for paper_id in ordered_paper_ids
+        }
+
+        diversified_results: list[
+            VectorSearchResult
+        ] = []
+
+        while (
+            len(diversified_results) < top_k
+        ):
+            added_result = False
+
+            for paper_id in (
+                ordered_paper_ids
+            ):
+                paper_results = (
+                    results_by_paper[paper_id]
+                )
+
+                position = positions[paper_id]
+
+                if position >= len(paper_results):
+                    continue
+
+                diversified_results.append(
+                    paper_results[position]
+                )
+
+                positions[paper_id] += 1
+                added_result = True
+
+                if (
+                    len(diversified_results) >= top_k
+                ):
+                    break
+
+            if not added_result:
+                break
+
+        return diversified_results

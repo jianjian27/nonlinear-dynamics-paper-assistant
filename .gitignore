@@ -37,3 +37,6 @@ data/*.db-wal
 
 # 本地Embedding向量缓存
 data/vector_indexes/
+
+# 本地导入的论文原文件
+data/papers/

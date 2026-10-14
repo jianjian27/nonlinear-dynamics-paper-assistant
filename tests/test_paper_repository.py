@@ -41,6 +41,75 @@ class TestPaperRepository(unittest.TestCase):
             doi="10.0000/example",
         )
 
+    def test_list_all_returns_empty_list(
+        self,
+    ) -> None:
+        """空数据库应返回空列表。"""
+
+        papers = self.repository.list_all()
+
+        self.assertEqual(
+            papers,
+            [],
+        )
+
+    def test_list_all_returns_papers_by_title(
+        self,
+    ) -> None:
+        """论文列表应按照标题排序。"""
+
+        second_paper = Paper(
+            id="paper-2",
+            title="忆阻神经网络研究",
+            authors=("作者乙",),
+            year=2025,
+            file_name="second.pdf",
+            file_path="papers/second.pdf",
+            file_hash="file-hash-2",
+        )
+
+        first_paper = Paper(
+            id="paper-1",
+            title="分数阶混沌系统研究",
+            authors=("作者甲",),
+            year=2026,
+            file_name="first.pdf",
+            file_path="papers/first.pdf",
+            file_hash="file-hash-1",
+        )
+
+        # 故意按照与标题排序相反的顺序写入。
+        self.repository.add(second_paper)
+        self.repository.add(first_paper)
+
+        papers = self.repository.list_all()
+
+        self.assertEqual(
+            len(papers),
+            2,
+        )
+
+        self.assertEqual(
+            [
+                paper.id
+                for paper in papers
+            ],
+            [
+                "paper-1",
+                "paper-2",
+            ],
+        )
+
+        self.assertEqual(
+            papers[0].title,
+            "分数阶混沌系统研究",
+        )
+
+        self.assertEqual(
+            papers[1].title,
+            "忆阻神经网络研究",
+        )
+
     def test_add_and_get_paper_by_id(self) -> None:
         original_paper = self.create_test_paper()
 
@@ -117,6 +186,217 @@ class TestPaperRepository(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.repository.add(second_paper)
 
+    def test_lists_papers_with_content_counts(
+        self,
+    ) -> None:
+        """论文概览应包含章节和Chunk数量。"""
+
+        paper = self.create_test_paper()
+
+        self.repository.add(paper)
+
+        self.connection.execute(
+            """
+            INSERT INTO sections (
+                id,
+                paper_id,
+                parent_id,
+                title,
+                level,
+                section_index,
+                content
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "section-1",
+                paper.id,
+                None,
+                "1 引言",
+                1,
+                0,
+                "章节内容",
+            ),
+        )
+
+        self.connection.execute(
+            """
+            INSERT INTO chunks (
+                id,
+                paper_id,
+                section_id,
+                chunk_index,
+                section_title,
+                section_path,
+                content,
+                pages,
+                source_blocks,
+                metadata,
+                content_hash
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "chunk-1",
+                paper.id,
+                "section-1",
+                0,
+                "1 引言",
+                '["1 引言"]',
+                "Chunk内容",
+                "[1]",
+                "[]",
+                "{}",
+                "content-hash-1",
+            ),
+        )
+
+        self.connection.commit()
+
+        overviews = (
+            self.repository
+            .list_all_with_counts()
+        )
+
+        self.assertEqual(
+            len(overviews),
+            1,
+        )
+
+        self.assertEqual(
+            overviews[0].paper.id,
+            paper.id,
+        )
+
+        self.assertEqual(
+            overviews[0].section_count,
+            1,
+        )
+
+        self.assertEqual(
+            overviews[0].chunk_count,
+            1,
+        )
+
+    def test_deleting_paper_cascades_content(
+        self,
+    ) -> None:
+        """删除论文后章节和Chunk也应被删除。"""
+
+        paper = self.create_test_paper()
+
+        self.repository.add(paper)
+
+        self.connection.execute(
+            """
+            INSERT INTO sections (
+                id,
+                paper_id,
+                parent_id,
+                title,
+                level,
+                section_index,
+                content
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "section-1",
+                paper.id,
+                None,
+                "1 引言",
+                1,
+                0,
+                "章节内容",
+            ),
+        )
+
+        self.connection.execute(
+            """
+            INSERT INTO chunks (
+                id,
+                paper_id,
+                section_id,
+                chunk_index,
+                section_title,
+                section_path,
+                content,
+                pages,
+                source_blocks,
+                metadata,
+                content_hash
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "chunk-1",
+                paper.id,
+                "section-1",
+                0,
+                "1 引言",
+                '["1 引言"]',
+                "Chunk内容",
+                "[1]",
+                "[]",
+                "{}",
+                "content-hash-1",
+            ),
+        )
+
+        self.connection.commit()
+
+        deleted_paper = (
+            self.repository.delete_by_id(
+                paper.id
+            )
+        )
+
+        self.assertIsNotNone(
+            deleted_paper
+        )
+
+        paper_count = self.connection.execute(
+            "SELECT COUNT(*) FROM papers"
+        ).fetchone()[0]
+
+        section_count = self.connection.execute(
+            "SELECT COUNT(*) FROM sections"
+        ).fetchone()[0]
+
+        chunk_count = self.connection.execute(
+            "SELECT COUNT(*) FROM chunks"
+        ).fetchone()[0]
+
+        self.assertEqual(
+            paper_count,
+            0,
+        )
+
+        self.assertEqual(
+            section_count,
+            0,
+        )
+
+        self.assertEqual(
+            chunk_count,
+            0,
+        )
+
+
+    def test_deleting_missing_paper_returns_none(
+        self,
+    ) -> None:
+        """删除不存在的论文应返回None。"""
+
+        result = (
+            self.repository.delete_by_id(
+                "missing-paper"
+            )
+        )
+
+        self.assertIsNone(
+            result
+        )
 
 if __name__ == "__main__":
     unittest.main()
