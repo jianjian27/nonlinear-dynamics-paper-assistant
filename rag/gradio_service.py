@@ -34,6 +34,9 @@ from rag.prompt import (
 from retrieval.semantic_retriever import (
     SemanticRetriever,
 )
+from domain.paper import (
+    Paper,
+)
 
 @dataclass(frozen=True)
 class GradioRagResult:
@@ -83,6 +86,68 @@ class GradioRagService:
 
         # 防止多个网页请求同时初始化模型或调用检索器。
         self._lock = Lock()
+
+    def list_paper_choices(
+        self,
+    ) -> list[tuple[str, str]]:
+        """返回适合Gradio选择组件使用的论文选项。"""
+
+        if not self.database_path.is_file():
+            raise FileNotFoundError(
+                "找不到论文数据库："
+                f"{self.database_path}"
+            )
+
+        connection = create_connection(
+            self.database_path
+        )
+
+        try:
+            repository = PaperRepository(
+                connection
+            )
+
+            papers = repository.list_all()
+        finally:
+            connection.close()
+
+        return [
+            (
+                self._format_paper_label(
+                    paper
+                ),
+                paper.id,
+            )
+            for paper in papers
+        ]
+
+    @staticmethod
+    def _format_paper_label(
+        paper: Paper,
+    ) -> str:
+        """生成论文选择组件中显示的文字。"""
+
+        details: list[str] = []
+
+        if paper.year is not None:
+            details.append(
+                str(paper.year)
+            )
+
+        if paper.authors:
+            details.append(
+                "、".join(paper.authors)
+            )
+
+        if not details:
+            return paper.title
+
+        detail_text = "；".join(details)
+
+        return (
+            f"{paper.title}"
+            f"（{detail_text}）"
+        )
 
     def ask(
         self,

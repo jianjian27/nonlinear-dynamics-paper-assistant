@@ -14,6 +14,12 @@ from rag.context_builder import (
 from rag.gradio_service import (
     GradioRagService,
 )
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from domain.paper import (
+    Paper,
+)
 
 
 class TestGradioRagService(
@@ -53,6 +59,108 @@ class TestGradioRagService(
                 evidences=(evidence,)
             ),
         )
+
+    def test_lists_paper_choices(
+        self,
+    ) -> None:
+        """论文应转换成显示文字和ID组成的选项。"""
+
+        with TemporaryDirectory() as directory:
+            database_path = (
+                Path(directory)
+                / "papers.db"
+            )
+
+            # 创建空文件，使数据库路径检查通过。
+            database_path.touch()
+
+            service = GradioRagService(
+                database_path=database_path
+            )
+
+            first_paper = Paper(
+                id="paper-001",
+                title="分数阶混沌系统研究",
+                authors=(
+                    "作者甲",
+                    "作者乙",
+                ),
+                year=2026,
+                file_name="first.pdf",
+                file_path="papers/first.pdf",
+                file_hash="hash-001",
+            )
+
+            second_paper = Paper(
+                id="paper-002",
+                title="忆阻神经网络研究",
+                authors=(),
+                file_name="second.pdf",
+                file_path="papers/second.pdf",
+                file_hash="hash-002",
+            )
+
+            fake_connection = MagicMock()
+
+            with patch(
+                "rag.gradio_service.create_connection",
+                return_value=fake_connection,
+            ), patch(
+                "rag.gradio_service.PaperRepository",
+            ) as repository_class:
+                repository = (
+                    repository_class.return_value
+                )
+
+                repository.list_all.return_value = [
+                    first_paper,
+                    second_paper,
+                ]
+
+                choices = (
+                    service.list_paper_choices()
+                )
+
+        self.assertEqual(
+            choices,
+            [
+                (
+                    (
+                        "分数阶混沌系统研究"
+                        "（2026；作者甲、作者乙）"
+                    ),
+                    "paper-001",
+                ),
+                (
+                    "忆阻神经网络研究",
+                    "paper-002",
+                ),
+            ],
+        )
+
+        repository.list_all.assert_called_once_with()
+        fake_connection.close.assert_called_once_with()
+
+    def test_paper_choices_require_database(
+        self,
+    ) -> None:
+        """数据库不存在时应给出明确错误。"""
+
+        with TemporaryDirectory() as directory:
+            missing_path = (
+                Path(directory)
+                / "missing.db"
+            )
+
+            service = GradioRagService(
+                database_path=missing_path
+            )
+
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "找不到论文数据库",
+            ):
+                service.list_paper_choices()
 
     def test_rejects_blank_question(
         self,
