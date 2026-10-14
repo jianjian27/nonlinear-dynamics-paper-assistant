@@ -566,6 +566,85 @@ class TestSemanticRetriever(
             scope="paper:paper-1",
         )
 
+    def test_diversifies_results_for_multiple_papers(
+        self,
+    ) -> None:
+        """多论文范围应轮流选择不同来源。"""
+
+        chunks = [
+            make_chunk(
+                0,
+                "论文一的高相关证据",
+                paper_id="paper-1",
+            ),
+            make_chunk(
+                1,
+                "论文一的第二条证据",
+                paper_id="paper-1",
+            ),
+            make_chunk(
+                0,
+                "论文二的高相关证据",
+                paper_id="paper-2",
+            ),
+            make_chunk(
+                1,
+                "论文二的第二条证据",
+                paper_id="paper-2",
+            ),
+        ]
+
+        self.repository.list_by_paper_ids.return_value = (
+            chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.00, 0.00],
+                    [0.99, 0.01],
+                    [0.80, 0.20],
+                    [0.70, 0.30],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        self.retriever.build_index(
+            paper_ids=[
+                "paper-1",
+                "paper-2",
+            ]
+        )
+
+        self.encoder.encode_queries.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        results = self.retriever.search(
+            "比较两篇论文的方法",
+            top_k=3,
+        )
+
+        result_ids = [
+            result.chunk.id
+            for result in results
+        ]
+
+        self.assertEqual(
+            result_ids,
+            [
+                "paper-1-chunk-0",
+                "paper-2-chunk-0",
+                "paper-1-chunk-1",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

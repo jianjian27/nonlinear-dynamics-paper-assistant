@@ -294,13 +294,21 @@ class SemanticRetriever:
                 f"实际 {query_vectors.shape}。"
             )
 
+        should_diversify = (
+            self._paper_ids is not None
+            and len(self._paper_ids) > 1
+        )
+
         candidate_count = (
-            top_k
-            if reference_mode == "include"
-            else max(
+            max(
                 self.indexed_count,
                 1,
             )
+            if (
+                reference_mode != "include"
+                or should_diversify
+            )
+            else top_k
         )
 
         candidates = self._index.search(
@@ -327,4 +335,83 @@ class SemanticRetriever:
         else:
             filtered_results = candidates
 
+        if should_diversify:
+            return (
+                self._diversify_by_paper(
+                    filtered_results,
+                    top_k=top_k,
+                )
+            )
+
         return filtered_results[:top_k]
+
+    @staticmethod
+    def _diversify_by_paper(
+            results: Sequence[VectorSearchResult],
+            *,
+            top_k: int
+    ) -> list[VectorSearchResult]:
+        """轮流从不同论文中选择检索结果。"""
+
+        results_by_paper: dict[
+            str,
+            list[VectorSearchResult],
+        ] = {}
+
+        for result in results:
+            paper_id = (
+                result.chunk.paper_id
+            )
+
+            results_by_paper.setdefault(
+                paper_id,
+                [],
+            ).append(result)
+
+        # 字典保持插入顺序，因此最高分结果所属的论文会优先参与第一轮选择。
+        ordered_paper_ids = list(
+            results_by_paper
+        )
+
+        positions = {
+            paper_id : 0
+            for paper_id in ordered_paper_ids
+        }
+
+        diversified_results: list[
+            VectorSearchResult
+        ] = []
+
+        while (
+            len(diversified_results) < top_k
+        ):
+            added_result = False
+
+            for paper_id in (
+                ordered_paper_ids
+            ):
+                paper_results = (
+                    results_by_paper[paper_id]
+                )
+
+                position = positions[paper_id]
+
+                if position >= len(paper_results):
+                    continue
+
+                diversified_results.append(
+                    paper_results[position]
+                )
+
+                positions[paper_id] += 1
+                added_result = True
+
+                if (
+                    len(diversified_results) >= top_k
+                ):
+                    break
+
+            if not added_result:
+                break
+
+        return diversified_results
