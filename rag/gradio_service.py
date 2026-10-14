@@ -53,6 +53,9 @@ from ingestion.paper_content_ingestor import (
 from ingestion.pipeline_factory import (
     create_pdf_ingestion_pipeline,
 )
+from domain.paper_overview import (
+    PaperOverview,
+)
 
 @dataclass(frozen=True)
 class GradioRagResult:
@@ -61,6 +64,14 @@ class GradioRagResult:
     answer_markdown: str
     evidence_markdown: str
     status_text: str
+
+@dataclass(frozen=True)
+class PaperDeletionResult:
+    """删除论文及其本地文件的结果。"""
+
+    paper: Paper
+    stored_file_deleted: bool
+    file_warning: str | None = None
 
 @dataclass(frozen=True)
 class RetrieverRuntime:
@@ -239,6 +250,115 @@ class GradioRagService:
                 self._retriever_runtimes.clear()
 
         return result
+
+    def list_paper_overviews(
+        self,
+    ) -> list[PaperOverview]:
+        """返回知识库中的论文及内容统计。"""
+
+        if not self.database_path.is_file():
+            return []
+
+        connection = create_connection(
+            self.database_path
+        )
+
+        try:
+            repository = PaperRepository(
+                connection
+            )
+
+            return (
+                repository
+                .list_all_with_counts()
+            )
+        finally:
+            connection.close()
+
+    def delete_paper(
+        self,
+        paper_id: str,
+    ) -> PaperDeletionResult:
+        """删除论文、结构化内容和受管PDF文件。"""
+
+        cleaned_paper_id = (
+            paper_id.strip()
+        )
+
+        if not cleaned_paper_id:
+            raise ValueError(
+                "请选择需要删除的论文。"
+            )
+
+        if not self.database_path.is_file():
+            raise FileNotFoundError(
+                "找不到论文数据库："
+                f"{self.database_path}"
+            )
+
+        with self._lock:
+            connection = create_connection(
+                self.database_path
+            )
+
+            try:
+                repository = PaperRepository(
+                    connection
+                )
+
+                deleted_paper = (
+                    repository.delete_by_id(
+                        cleaned_paper_id
+                    )
+                )
+            finally:
+                connection.close()
+
+            if deleted_paper is None:
+                raise ValueError(
+                    "知识库中不存在该论文。"
+                )
+
+            # 删除论文后，所有已有内存索引都可能过期。
+            self._retriever_runtimes.clear()
+
+        stored_file_deleted = False
+        file_warning = None
+
+        paper_file_path = Path(
+            deleted_paper.file_path
+        ).resolve()
+
+        managed_directory = (
+            self.paper_storage_directory
+            .resolve()
+        )
+
+        # 只允许删除 data/papers 管理范围内的文件。
+        # 通过命令行导入的外部原文件不会被删除。
+        if (
+            paper_file_path.is_file()
+            and paper_file_path.is_relative_to(
+                managed_directory
+            )
+        ):
+            try:
+                paper_file_path.unlink()
+                stored_file_deleted = True
+            except OSError as exc:
+                file_warning = (
+                    "数据库记录已删除，"
+                    "但本地PDF文件删除失败："
+                    f"{exc}"
+                )
+
+        return PaperDeletionResult(
+            paper=deleted_paper,
+            stored_file_deleted=(
+                stored_file_deleted
+            ),
+            file_warning=file_warning,
+        )
 
     def list_paper_choices(
         self,

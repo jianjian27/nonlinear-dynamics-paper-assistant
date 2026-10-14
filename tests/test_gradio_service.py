@@ -23,6 +23,15 @@ from domain.paper import (
     Paper,
 )
 
+from database.connection import (
+    create_connection,
+)
+from database.paper_repository import (
+    PaperRepository,
+)
+from database.schema import (
+    initialize_database,
+)
 
 class TestGradioRagService(
     unittest.TestCase
@@ -643,6 +652,148 @@ class TestGradioRagService(
             ):
                 service.ingest_pdf(
                     file_path
+                )
+
+    def test_deletes_paper_and_managed_pdf(
+        self,
+    ) -> None:
+        """删除论文时应清理受管PDF和内存索引。"""
+
+        with TemporaryDirectory() as directory:
+            root_directory = Path(directory)
+
+            database_path = (
+                root_directory
+                / "papers.db"
+            )
+
+            storage_directory = (
+                root_directory
+                / "papers"
+            )
+
+            storage_directory.mkdir()
+
+            pdf_path = (
+                storage_directory
+                / "hash-001.pdf"
+            )
+
+            pdf_path.write_bytes(
+                b"pdf content"
+            )
+
+            connection = create_connection(
+                database_path
+            )
+
+            initialize_database(
+                connection
+            )
+
+            repository = PaperRepository(
+                connection
+            )
+
+            repository.add(
+                Paper(
+                    id="paper-001",
+                    title="测试论文",
+                    authors=(),
+                    file_name="paper.pdf",
+                    file_path=str(pdf_path),
+                    file_hash="hash-001",
+                )
+            )
+
+            connection.close()
+
+            service = GradioRagService(
+                database_path=database_path,
+                paper_storage_directory=(
+                    storage_directory
+                ),
+            )
+
+            service._retriever_runtimes[
+                "all"
+            ] = MagicMock()
+
+            result = service.delete_paper(
+                "paper-001"
+            )
+
+            self.assertEqual(
+                result.paper.id,
+                "paper-001",
+            )
+
+            self.assertTrue(
+                result.stored_file_deleted
+            )
+
+            self.assertFalse(
+                pdf_path.exists()
+            )
+
+            self.assertEqual(
+                service._retriever_runtimes,
+                {},
+            )
+
+            verification_connection = (
+                create_connection(
+                    database_path
+                )
+            )
+
+            try:
+                remaining_paper = (
+                    PaperRepository(
+                        verification_connection
+                    )
+                    .get_by_id(
+                        "paper-001"
+                    )
+                )
+            finally:
+                verification_connection.close()
+
+            self.assertIsNone(
+                remaining_paper
+            )
+
+    def test_rejects_deleting_missing_paper(
+        self,
+    ) -> None:
+        """删除不存在的论文应给出错误。"""
+
+        with TemporaryDirectory() as directory:
+            database_path = (
+                Path(directory)
+                / "papers.db"
+            )
+
+            connection = create_connection(
+                database_path
+            )
+
+            initialize_database(
+                connection
+            )
+
+            connection.close()
+
+            service = GradioRagService(
+                database_path=database_path
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "不存在该论文",
+            ):
+                service.delete_paper(
+                    "missing-paper"
                 )
 
 if __name__ == "__main__":
