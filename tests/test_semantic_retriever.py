@@ -164,6 +164,87 @@ class TestSemanticRetriever(
 
         self.repository.list_all.assert_not_called()
 
+    def test_builds_index_for_multiple_papers(
+        self,
+    ) -> None:
+        """可以从多篇指定论文构建索引。"""
+
+        selected_chunks = [
+            make_chunk(
+                0,
+                "第一篇论文的稳定性分析",
+                paper_id="paper-1",
+            ),
+            make_chunk(
+                0,
+                "第二篇论文的混沌分析",
+                paper_id="paper-2",
+            ),
+        ]
+
+        self.repository.list_by_paper_ids.return_value = (
+            selected_chunks
+        )
+
+        self.encoder.encode_passages.return_value = (
+            np.array(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        count = self.retriever.build_index(
+            paper_ids=[
+                "paper-2",
+                " paper-1 ",
+                "paper-2",
+            ]
+        )
+
+        self.assertEqual(
+            count,
+            2,
+        )
+
+        self.repository.list_by_paper_ids.assert_called_once_with(
+            (
+                "paper-1",
+                "paper-2",
+            )
+        )
+
+        self.repository.list_all.assert_not_called()
+        self.repository.list_by_paper.assert_not_called()
+
+        expected_texts = [
+            chunk.embedding_text
+            for chunk in selected_chunks
+        ]
+
+        self.encoder.encode_passages.assert_called_once_with(
+            expected_texts
+        )
+
+    def test_rejects_single_and_multiple_scope_together(
+        self,
+    ) -> None:
+        """不能同时指定单篇和多篇范围。"""
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "不能同时使用",
+        ):
+            self.retriever.build_index(
+                paper_id="paper-1",
+                paper_ids=[
+                    "paper-1",
+                    "paper-2",
+                ],
+            )
+
     def test_searches_with_query_embedding(
         self,
     ) -> None:

@@ -13,6 +13,9 @@ from retrieval.content_filter import (
 from embedding.vector_cache import (
     VectorCache,
 )
+from collections.abc import (
+    Sequence,
+)
 
 
 class SemanticRetriever:
@@ -34,7 +37,9 @@ class SemanticRetriever:
         )
 
         self._is_built = False
-        self._paper_id: str | None = None
+        self._paper_ids: (
+                tuple[str, ...] | None
+        ) = None
         self._last_build_used_cache = False
 
     @property
@@ -58,23 +63,108 @@ class SemanticRetriever:
     def build_index(
             self,
             paper_id: str | None = None,
+            *,
+            paper_ids: (
+                    Sequence[str] | None
+            ) = None,
     ) -> int:
-        """从SQLite和向量缓存构建内存索引。"""
+        """从指定论文范围构建内存索引。"""
 
-        if paper_id is None:
-            chunks = (
-                self.chunk_repository.list_all()
+        if (
+                paper_id is not None
+                and paper_ids is not None
+        ):
+            raise ValueError(
+                "paper_id和paper_ids"
+                "不能同时使用。"
             )
-            cache_scope = "all"
-        else:
-            chunks = (
-                self.chunk_repository.list_by_paper(
-                    paper_id
+
+        if paper_ids is not None:
+            normalized_ids = tuple(
+                sorted(
+                    {
+                        current_id.strip()
+                        for current_id
+                        in paper_ids
+                        if current_id.strip()
+                    }
                 )
             )
-            cache_scope = (
-                f"paper:{paper_id}"
+
+            if not normalized_ids:
+                chunks = []
+                cache_scope = (
+                    "papers:empty"
+                )
+
+            elif len(normalized_ids) == 1:
+                only_paper_id = (
+                    normalized_ids[0]
+                )
+
+                chunks = (
+                    self.chunk_repository
+                    .list_by_paper(
+                        only_paper_id
+                    )
+                )
+
+                cache_scope = (
+                    f"paper:{only_paper_id}"
+                )
+
+            else:
+                chunks = (
+                    self.chunk_repository
+                    .list_by_paper_ids(
+                        normalized_ids
+                    )
+                )
+
+                cache_scope = (
+                        "papers:"
+                        + ",".join(
+                    normalized_ids
+                )
+                )
+
+            active_paper_ids = (
+                normalized_ids
             )
+
+        elif paper_id is not None:
+            cleaned_paper_id = (
+                paper_id.strip()
+            )
+
+            if not cleaned_paper_id:
+                raise ValueError(
+                    "paper_id不能为空。"
+                )
+
+            chunks = (
+                self.chunk_repository
+                .list_by_paper(
+                    cleaned_paper_id
+                )
+            )
+
+            cache_scope = (
+                f"paper:{cleaned_paper_id}"
+            )
+
+            active_paper_ids = (
+                cleaned_paper_id,
+            )
+
+        else:
+            chunks = (
+                self.chunk_repository
+                .list_all()
+            )
+
+            cache_scope = "all"
+            active_paper_ids = None
 
         new_index = InMemoryVectorIndex(
             dimension=self.encoder.dimension
@@ -100,7 +190,9 @@ class SemanticRetriever:
                 )
 
             if passage_vectors is not None:
-                self._last_build_used_cache = True
+                self._last_build_used_cache = (
+                    True
+                )
             else:
                 passage_texts = [
                     chunk.embedding_text
@@ -108,7 +200,8 @@ class SemanticRetriever:
                 ]
 
                 passage_vectors = (
-                    self.encoder.encode_passages(
+                    self.encoder
+                    .encode_passages(
                         passage_texts
                     )
                 )
@@ -116,7 +209,9 @@ class SemanticRetriever:
                 if self.vector_cache is not None:
                     self.vector_cache.save(
                         chunks=chunks,
-                        vectors=passage_vectors,
+                        vectors=(
+                            passage_vectors
+                        ),
                         model_name=(
                             self.encoder.identifier
                         ),
@@ -132,7 +227,7 @@ class SemanticRetriever:
             )
 
         self._index = new_index
-        self._paper_id = paper_id
+        self._paper_ids = active_paper_ids
         self._is_built = True
 
         return len(chunks)
