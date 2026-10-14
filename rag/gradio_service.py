@@ -46,6 +46,24 @@ class GradioRagResult:
     evidence_markdown: str
     status_text: str
 
+@dataclass(frozen=True)
+class RetrieverRuntime:
+    """某个检索范围对应的运行状态。"""
+
+    retriever: SemanticRetriever
+    paper_id: str | None
+    indexed_count: int
+    used_cache: bool
+
+    @property
+    def scope_key(self) -> str:
+        """返回当前检索范围的唯一标识。"""
+
+        if self.paper_id is None:
+            return "all"
+
+        return f"paper:{self.paper_id}"
+
 class GradioRagService:
     """为Gradio界面提供可复用的RAG问答服务。"""
 
@@ -77,12 +95,14 @@ class GradioRagService:
         self.max_context_chars = max_context_chars
         self.max_chunk_chars = max_chunk_chars
 
-        self._retriever: (
-            SemanticRetriever | None
+        self._encoder: (
+                SentenceTransformerEncoder | None
         ) = None
 
-        self._indexed_count = 0
-        self._used_cache = False
+        self._retriever_runtimes: dict[
+            str,
+            RetrieverRuntime,
+        ] = {}
 
         # 防止多个网页请求同时初始化模型或调用检索器。
         self._lock = Lock()
@@ -150,12 +170,13 @@ class GradioRagService:
         )
 
     def ask(
-        self,
-        question: str,
-        *,
-        top_k: int = 5,
+            self,
+            question: str,
+            *,
+            top_k: int = 5,
+            paper_id: str | None = None,
     ) -> GradioRagResult:
-        """执行一次面向网页的RAG问答。"""
+        """在指定论文范围内执行RAG问答。"""
 
         cleaned_question = question.strip()
 
@@ -169,9 +190,20 @@ class GradioRagService:
                 "Top-K必须大于0。"
             )
 
+        cleaned_paper_id = (
+            paper_id.strip()
+            if paper_id is not None
+            else None
+        )
+
+        if cleaned_paper_id == "":
+            cleaned_paper_id = None
+
         with self._lock:
-            retriever = (
-                self._get_or_build_retriever()
+            runtime = (
+                self._get_or_build_retriever(
+                    paper_id=cleaned_paper_id
+                )
             )
 
             connection = create_connection(
@@ -180,7 +212,7 @@ class GradioRagService:
 
             try:
                 answer_service = RagAnswerService(
-                    retriever=retriever,
+                    retriever=runtime.retriever,
                     paper_repository=(
                         PaperRepository(connection)
                     ),
@@ -220,16 +252,33 @@ class GradioRagService:
             ),
             status_text=(
                 self._build_status_text(
-                    rag_answer
+                    rag_answer,
+                    runtime,
                 )
             ),
         )
 
-    def _get_or_build_retriever(self) -> SemanticRetriever:
-        """第一次提问时构建检索器，之后直接复用。"""
+    def _get_or_build_retriever(
+            self,
+            *,
+            paper_id: str | None,
+    ) -> RetrieverRuntime:
+        """获取或构建指定范围的检索器。"""
 
-        if self._retriever is not None:
-            return self._retriever
+        scope_key = (
+            "all"
+            if paper_id is None
+            else f"paper:{paper_id}"
+        )
+
+        cached_runtime = (
+            self._retriever_runtimes.get(
+                scope_key
+            )
+        )
+
+        if cached_runtime is not None:
+            return cached_runtime
 
         if not self.database_path.is_file():
             raise FileNotFoundError(
@@ -237,16 +286,17 @@ class GradioRagService:
                 f"{self.database_path}"
             )
 
-        encoder = SentenceTransformerEncoder(
-            model_name=self.embedding_model,
-            device=self.device,
+        encoder = (
+            self._get_or_create_encoder()
         )
 
         vector_cache = VectorCache.for_index(
             self.vector_cache_directory,
             model_name=encoder.identifier,
-            scope="all",
-            source_id=str(self.database_path),
+            scope=scope_key,
+            source_id=str(
+                self.database_path
+            ),
         )
 
         connection = create_connection(
@@ -263,36 +313,82 @@ class GradioRagService:
             )
 
             indexed_count = (
-                retriever.build_index()
+                retriever.build_index(
+                    paper_id=paper_id
+                )
             )
-
         finally:
             connection.close()
 
         if indexed_count == 0:
-            raise RuntimeError(
-                "论文数据库中没有可检索的Chunk。"
-            )
+            if paper_id is None:
+                message = (
+                    "论文数据库中没有"
+                    "可检索的Chunk。"
+                )
+            else:
+                message = (
+                    "所选论文中没有"
+                    "可检索的Chunk。"
+                )
 
-        self._retriever = retriever
-        self._indexed_count = indexed_count
-        self._used_cache = (
-            retriever.last_build_used_cache
+            raise RuntimeError(message)
+
+        runtime = RetrieverRuntime(
+            retriever=retriever,
+            paper_id=paper_id,
+            indexed_count=indexed_count,
+            used_cache=(
+                retriever
+                .last_build_used_cache
+            ),
         )
 
-        return retriever
+        self._retriever_runtimes[
+            scope_key
+        ] = runtime
 
-    def _build_status_text(self, rag_answer: RagAnswer) -> str:
+        return runtime
+
+    def _get_or_create_encoder(
+        self,
+    ) -> SentenceTransformerEncoder:
+        """延迟创建并复用Embedding模型。"""
+
+        if self._encoder is None:
+            self._encoder = (
+                SentenceTransformerEncoder(
+                    model_name=(
+                        self.embedding_model
+                    ),
+                    device=self.device,
+                )
+            )
+
+        return self._encoder
+
+    @staticmethod
+    def _build_status_text(
+            rag_answer: RagAnswer,
+            runtime: RetrieverRuntime,
+    ) -> str:
         """生成界面底部的运行状态。"""
 
         vector_status = (
             "已从磁盘缓存加载"
-            if self._used_cache
+            if runtime.used_cache
             else "已重新计算并写入缓存"
         )
 
+        scope_text = (
+            "整个论文库"
+            if runtime.paper_id is None
+            else "指定论文"
+        )
+
         return (
-            f"索引包含 {self._indexed_count} 个Chunk；"
+            f"检索范围：{scope_text}；"
+            f"索引包含 {runtime.indexed_count} 个Chunk；"
             f"本次使用 {rag_answer.retrieved_count} 条证据；"
             f"向量状态：{vector_status}。"
         )

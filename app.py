@@ -183,8 +183,34 @@ def analyze_paper(
 knowledge_service = GradioRagService()
 
 
+ALL_PAPERS_SCOPE = "__all__"
+
+
+def load_knowledge_scope_choices(
+) -> list[tuple[str, str]]:
+    """加载知识库问答可选择的论文范围。"""
+
+    choices = [
+        (
+            "整个论文库",
+            ALL_PAPERS_SCOPE,
+        )
+    ]
+
+    try:
+        choices.extend(
+            knowledge_service
+            .list_paper_choices()
+        )
+    except FileNotFoundError:
+        # 数据库尚未创建时，网页仍然可以正常启动。
+        pass
+
+    return choices
+
 def ask_paper_library(
     question,
+    paper_scope,
     top_k,
     progress=gr.Progress(),
 ):
@@ -204,6 +230,16 @@ def ask_paper_library(
             "等待输入问题。",
         )
 
+    paper_id = (
+        None
+        if (
+            paper_scope is None
+            or paper_scope
+            == ALL_PAPERS_SCOPE
+        )
+        else str(paper_scope)
+    )
+
     try:
         progress(
             0.1,
@@ -213,6 +249,7 @@ def ask_paper_library(
         result = knowledge_service.ask(
             cleaned_question,
             top_k=int(top_k),
+            paper_id=paper_id,
         )
 
         progress(
@@ -361,6 +398,20 @@ with gr.Blocks(
             with gr.Row():
 
                 with gr.Column(scale=1):
+                    knowledge_scope = (
+                        gr.Dropdown(
+                            choices=(
+                                load_knowledge_scope_choices()
+                            ),
+                            value=ALL_PAPERS_SCOPE,
+                            label="检索范围",
+                            info=(
+                                "选择整个论文库，"
+                                "或者只检索某一篇论文。"
+                            ),
+                        )
+                    )
+
                     knowledge_question = (
                         gr.Textbox(
                             label="研究问题",
@@ -419,6 +470,7 @@ with gr.Blocks(
                 fn=ask_paper_library,
                 inputs=[
                     knowledge_question,
+                    knowledge_scope,
                     knowledge_top_k,
                 ],
                 outputs=[

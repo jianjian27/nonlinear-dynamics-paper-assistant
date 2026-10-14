@@ -13,6 +13,7 @@ from rag.context_builder import (
 )
 from rag.gradio_service import (
     GradioRagService,
+    RetrieverRuntime,
 )
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -268,18 +269,22 @@ class TestGradioRagService(
             database_path="test.db"
         )
 
-        service._indexed_count = 10
-        service._used_cache = True
 
         fake_retriever = MagicMock()
+        fake_runtime = RetrieverRuntime(
+            retriever=fake_retriever,
+            paper_id="paper-001",
+            indexed_count=10,
+            used_cache=True,
+        )
         fake_connection = MagicMock()
         fake_answer = self.create_answer()
 
         with patch.object(
             service,
             "_get_or_build_retriever",
-            return_value=fake_retriever,
-        ), patch(
+            return_value=fake_runtime,
+        ) as get_retriever, patch(
             "rag.gradio_service.create_connection",
             return_value=fake_connection,
         ), patch(
@@ -298,6 +303,7 @@ class TestGradioRagService(
             result = service.ask(
                 "论文使用了什么方法？",
                 top_k=3,
+                paper_id="paper-001",
             )
 
         answer_service.answer.assert_called_once_with(
@@ -332,6 +338,87 @@ class TestGradioRagService(
             result.status_text,
         )
 
+        get_retriever.assert_called_once_with(
+            paper_id="paper-001"
+        )
+
+        self.assertIn(
+            "检索范围：指定论文",
+            result.status_text,
+        )
+
+    def test_reuses_retriever_for_same_scope(
+        self,
+    ) -> None:
+        """相同论文范围应复用已经构建的索引。"""
+
+        with TemporaryDirectory() as directory:
+            database_path = (
+                Path(directory)
+                / "papers.db"
+            )
+
+            database_path.touch()
+
+            service = GradioRagService(
+                database_path=database_path
+            )
+
+            fake_encoder = MagicMock()
+            fake_encoder.identifier = (
+                "test-embedding-model"
+            )
+
+            service._encoder = fake_encoder
+
+            fake_connection = MagicMock()
+            fake_retriever = MagicMock()
+
+            fake_retriever.build_index.return_value = 4
+            fake_retriever.last_build_used_cache = True
+
+            with patch(
+                "rag.gradio_service.create_connection",
+                return_value=fake_connection,
+            ), patch(
+                "rag.gradio_service.VectorCache.for_index",
+            ), patch(
+                "rag.gradio_service.SemanticRetriever",
+                return_value=fake_retriever,
+            ) as retriever_class:
+                first_runtime = (
+                    service
+                    ._get_or_build_retriever(
+                        paper_id="paper-001"
+                    )
+                )
+
+                second_runtime = (
+                    service
+                    ._get_or_build_retriever(
+                        paper_id="paper-001"
+                    )
+                )
+
+        self.assertIs(
+            first_runtime,
+            second_runtime,
+        )
+
+        fake_retriever.build_index.assert_called_once_with(
+            paper_id="paper-001"
+        )
+
+        retriever_class.assert_called_once()
+
+        self.assertEqual(
+            first_runtime.indexed_count,
+            4,
+        )
+
+        self.assertTrue(
+            first_runtime.used_cache
+        )
 
 if __name__ == "__main__":
     unittest.main()
