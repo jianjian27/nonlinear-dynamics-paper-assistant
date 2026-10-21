@@ -398,5 +398,58 @@ class TestPaperRepository(unittest.TestCase):
             result
         )
 
+    def test_gets_overview_by_paper_id(
+        self,
+    ) -> None:
+        """应根据ID查询论文概览。"""
+
+        paper = self.create_test_paper()
+
+        self.repository.add(
+            paper
+        )
+
+        overview = (
+            self.repository
+            .get_overview_by_id(
+                paper.id
+            )
+        )
+
+        self.assertIsNotNone(
+            overview
+        )
+
+        self.assertEqual(
+            overview.paper.id,
+            paper.id,
+        )
+
+        self.assertEqual(
+            overview.paper.title,
+            paper.title,
+        )
+
+        self.assertEqual(
+            overview.section_count,
+            0,
+        )
+
+        self.assertEqual(
+            overview.chunk_count,
+            0,
+        )
+
+        missing_overview = (
+            self.repository
+            .get_overview_by_id(
+                "missing-paper"
+            )
+        )
+
+        self.assertIsNone(
+            missing_overview
+        )
+
 if __name__ == "__main__":
     unittest.main()
