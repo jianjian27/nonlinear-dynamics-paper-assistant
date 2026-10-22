@@ -7,9 +7,13 @@ from agent_tools.paper_tools import (
     ListPapersTool,
     GetPaperOverviewTool
 )
+from agent_tools.retrieval_tools import (
+    SearchPaperEvidenceTool,
+)
 
 __all__ = [
     "AgentTool",
     "ListPapersTool",
     "GetPaperOverviewTool",
+    "SearchPaperEvidenceTool",
 ] # 表示这个包希望对外公开的主要名称。
