@@ -117,6 +117,49 @@ class PaperRepository:
             for row in rows
         ]
 
+    def get_overview_by_id(
+        self,
+        paper_id: str,
+    ) -> PaperOverview | None:
+        """根据ID查询论文及其内容统计。"""
+
+        row = self.connection.execute(
+            # self.connection 是 SQLite 数据库连接对象，execute() 用来执行 SQL。
+            # SELECT 表示查询数据。
+            # papers.* 表示取出 papers 表中的全部列
+            """
+            SELECT 
+                papers.*,
+                
+                (
+                    SELECT COUNT(*)
+                    FROM sections
+                    WHERE sections.paper_id = papers.id
+                ) AS section_count,
+                
+                (
+                    SELECT COUNT(*)
+                    FROM chunks
+                    WHERE chunks.paper_id = papers.id
+                ) AS chunk_count
+                
+            FROM papers
+            WHERE papers.id = ?
+            """,
+            (paper_id,),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return PaperOverview(
+            paper=self._row_to_paper(
+                row
+            ),
+            section_count=row["section_count"],
+            chunk_count=row["chunk_count"],
+        )
+
     def delete_by_id(
         self,
         paper_id: str,
