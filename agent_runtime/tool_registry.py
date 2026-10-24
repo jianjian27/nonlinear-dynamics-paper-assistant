@@ -9,7 +9,7 @@ TOOL_NAME_PATTERN = re.compile(
 )
 
 
-class DulicateToolError(ValueError):
+class DuplicateToolError(ValueError):
     """注册了名称重复的工具。"""
 
 
@@ -50,6 +50,11 @@ class ToolRegistry:
                 "工具名称不能为空。"
             )
 
+        if tool_name != tool.name:
+            raise ValueError(
+                "工具名称两侧不能包含空格。"
+            )
+
         if not TOOL_NAME_PATTERN.fullmatch(tool_name):
             raise ValueError(
                 "工具名称只能包含英文字母、"
@@ -58,7 +63,7 @@ class ToolRegistry:
             )
 
         if tool_name in self._tools:
-            raise DulicateToolError(
+            raise DuplicateToolError(
                 f"工具已经注册：{tool_name}"
             )
 
