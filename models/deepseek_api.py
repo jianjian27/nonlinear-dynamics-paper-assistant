@@ -122,6 +122,94 @@ class AliyunChatClient:
             timeout=request_timeout,
         )
 
+    def create_completion(
+            self,
+            *,
+            messages: Sequence[
+                Mapping[str, Any]
+            ],
+            tools: Sequence[
+                       Mapping[str, Any]
+                   ] | None = None,
+            tool_choice: str | None = None,
+    ) -> Any:
+        """发送一次OpenAI兼容Chat Completion请求。"""
+
+        request_arguments: dict[
+            str,
+            Any,
+        ] = {
+            "model": self.model_name,
+            "messages": [
+                dict(message)
+                for message in messages
+            ],
+            "max_tokens": self.max_tokens,
+            "extra_body": {
+                "enable_thinking": (
+                    self.enable_thinking
+                ),
+            },
+        }
+
+        if tools:
+            request_arguments["tools"] = [
+                dict(tool)
+                for tool in tools
+            ]
+
+        if tool_choice is not None:
+            request_arguments[
+                "tool_choice"
+            ] = tool_choice
+
+        try:
+            return (
+                self.client
+                .chat
+                .completions
+                .create(
+                    **request_arguments
+                )
+            )
+
+        except AuthenticationError as exc:
+            raise ModelServiceError(
+                "模型服务认证失败，请检查"
+                "API Key及业务空间。"
+            ) from exc
+
+        except APITimeoutError as exc:
+            raise ModelServiceError(
+                "模型请求超过"
+                f" {self.request_timeout:g} 秒，"
+                "请稍后重试或减少输入内容。"
+            ) from exc
+
+        except RateLimitError as exc:
+            raise ModelServiceError(
+                "模型请求过于频繁或额度受限，"
+                "请稍后重试并检查阿里云额度。"
+            ) from exc
+
+        except APIConnectionError as exc:
+            raise ModelServiceError(
+                "无法连接模型服务，请检查"
+                "网络、代理和Base URL。"
+            ) from exc
+
+        except BadRequestError as exc:
+            raise ModelServiceError(
+                "模型拒绝了当前请求，请检查"
+                "模型名称、输入长度和请求参数。"
+            ) from exc
+
+        except APIStatusError as exc:
+            raise ModelServiceError(
+                "模型服务返回异常状态码："
+                f"{exc.status_code}。"
+            ) from exc
+
     def ask(
         self,
         messages: Sequence[
@@ -134,53 +222,9 @@ class AliyunChatClient:
             self._validate_messages(messages)
         )
 
-        try:
-            response = (
-                self.client
-                .chat
-                .completions
-                .create(
-                    model=self.model_name,
-                    messages=normalized_messages,
-                    max_tokens=self.max_tokens,
-                    extra_body={
-                        "enable_thinking": (
-                            self.enable_thinking
-                        ),
-                    },
-                )
-            )
-        except AuthenticationError as exc:
-            raise ModelServiceError(
-                "模型服务认证失败，请检查"
-                "API Key及业务空间。"
-            ) from exc
-        except APITimeoutError as exc:
-            raise ModelServiceError(
-                "模型请求超过"
-                f" {self.request_timeout:g} 秒，"
-                "请稍后重试或减少输入内容。"
-            ) from exc
-        except RateLimitError as exc:
-            raise ModelServiceError(
-                "模型请求过于频繁或额度受限，"
-                "请稍后重试并检查阿里云额度。"
-            ) from exc
-        except APIConnectionError as exc:
-            raise ModelServiceError(
-                "无法连接模型服务，请检查"
-                "网络、代理和Base URL。"
-            ) from exc
-        except BadRequestError as exc:
-            raise ModelServiceError(
-                "模型拒绝了当前请求，请检查"
-                "模型名称、输入长度和请求参数。"
-            ) from exc
-        except APIStatusError as exc:
-            raise ModelServiceError(
-                "模型服务返回异常状态码："
-                f"{exc.status_code}。"
-            ) from exc
+        response = self.create_completion(
+            messages=normalized_messages
+        )
 
         if not response.choices:
             raise ModelServiceError(

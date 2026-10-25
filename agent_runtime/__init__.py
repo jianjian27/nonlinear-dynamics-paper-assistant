@@ -10,10 +10,24 @@ from agent_runtime.tool_registry import (
     ToolNotFoundError,
     ToolRegistry,
 )
+from agent_runtime.messages import (
+    AgentAssistantMessage,
+    AgentToolCall,
+)
+from agent_runtime.model_protocol import (
+    AgentChatModel,
+    AgentMessage,
+    ToolDefinition,
+)
 
 
 __all__ = [
+    "AgentAssistantMessage",
+    "AgentChatModel",
+    "AgentMessage",
+    "AgentToolCall",
     "DuplicateToolError",
+    "ToolDefinition",
     "ToolDispatcher",
     "ToolExecutionError",
     "ToolExecutionResult",
