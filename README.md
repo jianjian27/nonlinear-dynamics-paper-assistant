@@ -1,8 +1,8 @@
 # 非线性动力系统论文智能分析助手
 
-一个面向非线性动力系统研究的本地论文分析与 RAG 知识库应用。
+一个面向非线性动力系统研究的本地论文分析、RAG 知识库与科研 Agent 应用。
 
-项目使用 PyMuPDF 解析论文结构，使用 SQLite 保存论文、章节和 Chunk，使用本地 Sentence Transformer 模型进行语义编码，并通过阿里云百炼的 OpenAI 兼容接口生成带原文证据的回答。Web 界面由 Gradio 构建。
+项目使用 PyMuPDF 解析论文结构，使用 SQLite 保存论文、章节和 Chunk，使用本地 Sentence Transformer 模型进行语义编码，并通过阿里云百炼的 OpenAI 兼容接口完成 RAG 问答和 Tool Calling。Web 界面由 Gradio 构建。
 
 ## 当前功能
 
@@ -71,6 +71,34 @@ RAG 回答要求模型：
 - 区分论文原文、模型推断和研究评价
 - 不编造公式、参数或实验结果
 
+### 科研 Agent
+
+科研 Agent 可以根据用户任务自主选择并连续调用工具，而不是按照固定流程执行一次检索。当前提供三个只读工具：
+
+- `list_papers`：查看知识库中的论文
+- `get_paper_overview`：读取指定论文的元数据和章节结构
+- `search_paper_evidence`：检索带论文、章节和页码的原文证据
+
+Agent 运行链路包括：
+
+```text
+用户研究任务
+  ↓
+模型分析任务并选择工具
+  ↓
+JSON Schema参数验证
+  ↓
+工具注册表与安全调度器
+  ↓
+读取论文列表、章节结构或原文证据
+  ↓
+模型根据工具结果决定继续调用或生成回答
+  ↓
+展示最终回答和完整工具调用轨迹
+```
+
+运行时设置了模型轮数和工具调用次数上限，并对未知工具、重复调用 ID、无效参数和异常模型消息进行处理。
+
 ## 技术栈
 
 - Python
@@ -82,6 +110,8 @@ RAG 回答要求模型：
 - PyTorch
 - OpenAI Python SDK
 - 阿里云百炼 OpenAI 兼容接口
+- Pydantic
+- JSON Schema / Tool Calling
 - unittest
 
 默认本地 Embedding 模型：
@@ -99,6 +129,9 @@ intfloat/multilingual-e5-small
 ├── requirements.txt          # 项目依赖
 ├── .env.example              # 环境变量模板
 │
+├── agent_app/                # Agent组装与Gradio服务
+├── agent_runtime/            # 消息协议、工具调度和多轮运行循环
+├── agent_tools/              # 科研Agent的结构化工具
 ├── database/                 # SQLite连接、表结构和仓库
 ├── domain/                   # Paper、Section、Chunk等领域模型
 ├── embedding/                # Embedding编码、向量索引和磁盘缓存
@@ -169,10 +202,11 @@ DASHSCOPE_ENABLE_THINKING=false
 python app.py
 ```
 
-打开终端显示的本地地址后，可以使用两个功能区：
+打开终端显示的本地地址后，可以使用三个功能区：
 
 ```text
 📄 单篇论文分析
+🤖 科研 Agent
 🔎 科研知识库问答
 ```
 
@@ -184,6 +218,8 @@ python app.py
 4. 提交研究问题
 5. 查看回答和原文证据
 6. 删除不再需要的论文
+
+科研 Agent 页面支持输入复合研究任务，并展示模型轮数、工具调用数、调用参数、执行状态和工具调用轨迹。
 
 ## 命令行导入论文
 
@@ -231,6 +267,27 @@ python -m scripts.ask_papers `
     "论文使用了哪些动力学分析方法？" `
     --top-k 5
 ```
+
+## 命令行科研 Agent
+
+查看知识库中的论文：
+
+```powershell
+python -m scripts.ask_agent `
+    "知识库中有哪些论文？" `
+    --show-trace
+```
+
+执行需要论文证据的研究任务：
+
+```powershell
+python -m scripts.ask_agent `
+    "知识库中的论文使用了哪些动力学分析方法？请注明章节和页码。" `
+    --device cuda `
+    --show-trace
+```
+
+`--show-trace` 会显示 Agent 的工具选择、调用参数和执行结果，便于检查回答依据与运行过程。
 
 ## 查看数据库内容
 
@@ -286,14 +343,19 @@ python -m unittest discover -s tests -v
 - 模型客户端错误处理
 - Gradio RAG 服务
 - 论文统计与安全删除
-
-当前共有 132 项自动化测试。
+- Agent工具定义、参数验证与注册
+- 工具安全调度与结构化错误
+- Tool Calling消息协议与模型适配
+- 多轮Agent循环、终止条件和运行限制
+- Agent命令行入口与Gradio服务
+- Agent网页回调与索引重置
 
 ## 隐私与安全
 
 - Embedding 默认在本地运行。
 - PDF 原文和 SQLite 数据库存储在本地。
 - 最终 RAG 上下文会发送给 `.env` 中配置的模型服务。
+- Agent 调用工具获得的论文证据和工具结果可能会发送给模型服务。
 - 处理未公开论文或内部资料前，请确认模型服务的数据处理条款。
 - 删除论文时，系统只自动删除 `data/papers/` 中受管理的 PDF。
 - 通过外部路径导入的原始 PDF 不会被自动删除。
@@ -307,20 +369,22 @@ python -m unittest discover -s tests -v
 - 当前向量检索为本地内存索引，不适合超大规模论文库。
 - 尚未实现关键词与向量混合检索、Reranker 和系统化 RAG 评估。
 - 检索效果仍受 PDF 解析质量、Chunk 划分和 Embedding 模型影响。
-- 当前系统还不是自主 Agent，尚未接入 Tool Calling 和任务工作流。
+- 当前 Agent 每次执行一个独立任务，尚未实现跨会话记忆和长期任务状态。
+- 当前 Agent 工具均为只读查询工具，不会自主修改或删除论文数据。
+- 当前多轮 Agent 使用自研轻量运行循环，尚未接入 LangGraph 等有状态工作流框架。
 
 ## 后续规划
 
-下一阶段将从完整 RAG 应用继续扩展到 AI Agent：
+下一阶段将继续提高 Agent 的可验证性与工程交付能力：
 
-1. 为现有能力定义结构化工具接口
-2. 学习并接入 Function Calling / Tool Calling
-3. 让模型自主选择论文查询、检索和管理工具
-4. 使用 LangGraph 构建有状态 Agent 工作流
-5. 增加结构化输出和任务状态
-6. 建立 RAG 与 Agent 评估集
-7. 使用 FastAPI 提供服务接口
-8. 使用 Docker 完成可复现部署
+1. 建立 RAG 与 Agent 评估集和质量指标
+2. 增加查询改写、混合检索与 Reranker
+3. 为多论文比较等任务增加结构化输出
+4. 增加会话状态和可恢复的任务执行记录
+5. 根据工作流复杂度评估并接入 LangGraph
+6. 使用 FastAPI 提供服务接口
+7. 使用 Docker 完成可复现部署
+8. 增加日志、配置管理和基础可观测性
 
 后续质量优化包括：
 
