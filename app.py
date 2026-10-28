@@ -28,6 +28,14 @@ from rag.gradio_service import (
     GradioRagService,
 )
 
+from agent_app import (
+    GradioAgentService,
+)
+from agent_runtime import (
+    AgentProtocolError,
+    AgentRunLimitError,
+)
+
 # -----------------------------
 def analyze_paper(
     pdf_file,
@@ -184,6 +192,8 @@ def analyze_paper(
 
 knowledge_service = GradioRagService()
 
+agent_service = GradioAgentService()
+
 
 
 def load_knowledge_scope_choices(
@@ -306,6 +316,8 @@ def delete_paper_from_web(
                 str(paper_id)
             )
         )
+
+        agent_service.reset()
 
         choices = (
             load_knowledge_scope_choices()
@@ -436,6 +448,9 @@ def ingest_paper_from_web(
                 doi=doi,
             )
         )
+
+        if result.created:
+            agent_service.reset()
 
         progress(
             1.0,
@@ -581,6 +596,116 @@ def ask_paper_library(
             "问答失败。",
         )
 
+def ask_research_agent(
+    question,
+    progress=gr.Progress(),
+):
+    """运行科研Agent并返回回答和工具轨迹。"""
+
+    cleaned_question = (
+        question or ""
+    ).strip()
+
+    if not cleaned_question:
+        return (
+            "## ⚠️ 请输入问题",
+            (
+                "## Agent 执行轨迹\n\n"
+                "尚未运行Agent。"
+            ),
+            "等待输入问题。",
+        )
+
+    try:
+        progress(
+            0.1,
+            desc=(
+                "Agent正在分析问题并"
+                "选择所需工具……"
+            ),
+        )
+
+        result = agent_service.ask(
+            cleaned_question
+        )
+
+        progress(
+            1.0,
+            desc="Agent回答完成",
+        )
+
+        return (
+            result.answer_markdown,
+            result.trace_markdown,
+            result.status_text,
+        )
+
+    except ModelServiceError as exc:
+        return (
+            (
+                "## ❌ 模型服务调用失败\n\n"
+                f"{exc}"
+            ),
+            (
+                "## Agent 执行轨迹\n\n"
+                "模型服务调用失败。"
+            ),
+            "Agent运行失败。",
+        )
+
+    except AgentRunLimitError as exc:
+        return (
+            (
+                "## ⚠️ Agent达到运行限制\n\n"
+                f"{exc}"
+            ),
+            (
+                "## Agent 执行轨迹\n\n"
+                "Agent未能在限制内完成任务。"
+            ),
+            "Agent达到运行限制。",
+        )
+
+    except AgentProtocolError as exc:
+        return (
+            (
+                "## ❌ Agent协议错误\n\n"
+                f"{exc}"
+            ),
+            (
+                "## Agent 执行轨迹\n\n"
+                "模型返回了异常的Agent消息。"
+            ),
+            "Agent协议错误。",
+        )
+
+    except FileNotFoundError as exc:
+        return (
+            (
+                "## ❌ 找不到论文数据库\n\n"
+                f"{exc}"
+            ),
+            (
+                "## Agent 执行轨迹\n\n"
+                "请先向知识库导入论文。"
+            ),
+            "知识库不可用。",
+        )
+
+    except Exception as exc:
+        return (
+            (
+                "## ❌ Agent运行失败\n\n"
+                f"{type(exc).__name__}: "
+                f"{exc}"
+            ),
+            (
+                "## Agent 执行轨迹\n\n"
+                "本次Agent任务未成功完成。"
+            ),
+            "Agent运行失败。",
+        )
+
 
 
 # -----------------------------
@@ -597,7 +722,7 @@ with gr.Blocks(
 
 ## 非线性动力系统论文智能分析助手
 
-支持单篇论文分析与科研知识库问答。
+支持单篇论文分析、科研知识库问答与自主工具调用 Agent。
 """
     )
 
@@ -938,7 +1063,105 @@ with gr.Blocks(
                 ],
             )
 
-
+        with gr.Tab(
+                "🤖 科研 Agent"
+        ):
+            gr.Markdown(
+                """
+    ## 自主工具调用科研 Agent
+    Agent 会根据问题自主决定是否查看论文列表、
+    读取论文结构或检索论文原文证据。
+    与固定 RAG 问答不同，Agent 可以连续调用多个工具，
+    根据中间结果调整下一步操作，再生成最终回答。
+    """
+            )
+            with gr.Row():
+                with gr.Column(
+                        scale=1
+                ):
+                    agent_question = (
+                        gr.Textbox(
+                            label="研究任务",
+                            placeholder=(
+                                "例如：先查看知识库"
+                                "中有哪些论文，再总结"
+                                "它们使用的动力学"
+                                "分析方法，并注明"
+                                "章节和页码。"
+                            ),
+                            lines=8,
+                        )
+                    )
+                    agent_run_button = (
+                        gr.Button(
+                            "🤖 运行科研 Agent",
+                            variant="primary",
+                        )
+                    )
+                    agent_status = (
+                        gr.Textbox(
+                            label="运行状态",
+                            value=(
+                                "等待输入研究任务。"
+                            ),
+                            interactive=False,
+                        )
+                    )
+                    gr.Markdown(
+                        """
+    ### 示例任务
+    - 知识库中有哪些论文？
+    - 某篇论文包含哪些主要章节？
+    - 论文使用了哪些动力学分析方法？
+    - 比较知识库中不同论文使用的研究方法。
+    """
+                    )
+                with gr.Column(
+                        scale=2
+                ):
+                    gr.Markdown(
+                        "## Agent 回答"
+                    )
+                    agent_answer = (
+                        gr.Markdown(
+                            "等待运行……"
+                        )
+                    )
+                    with gr.Accordion(
+                            "查看 Agent 工具调用轨迹",
+                            open=False,
+                    ):
+                        agent_trace = (
+                            gr.Markdown(
+                                (
+                                    "## Agent "
+                                    "执行轨迹\n\n"
+                                    "尚未运行Agent。"
+                                )
+                            )
+                        )
+            agent_run_button.click(
+                fn=ask_research_agent,
+                inputs=[
+                    agent_question,
+                ],
+                outputs=[
+                    agent_answer,
+                    agent_trace,
+                    agent_status,
+                ],
+            )
+            agent_question.submit(
+                fn=ask_research_agent,
+                inputs=[
+                    agent_question,
+                ],
+                outputs=[
+                    agent_answer,
+                    agent_trace,
+                    agent_status,
+                ],
+            )
 
 if __name__ == "__main__":
     demo.launch()
