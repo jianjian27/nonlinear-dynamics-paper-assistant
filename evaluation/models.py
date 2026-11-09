@@ -122,3 +122,41 @@ class ToolTraceEvaluation(EvaluationModel):
     passed: bool
 
 
+class AgentCaseEvaluation(EvaluationModel):
+    """一个Agent评估案例的完整执行结果。"""
+
+    case_id: str = Field(min_length=1)
+
+    question: str = Field(min_length=1)
+
+    answer: str | None = None
+
+    trace: ToolTraceEvaluation | None = None
+
+    missing_answer_keywords: tuple[str, ...] = ()
+
+    duration_seconds: float = Field(ge=0,)
+
+    error: str | None = None
+
+    passed: bool
+
+
+class EvaluationSummary(EvaluationModel):
+    """一批Agent评估案例的汇总结果。"""
+
+    total_cases: int = Field(ge=0)
+
+    passed_cases: int = Field(ge=0)
+
+    failed_cases: int = Field(ge=0)
+
+    pass_rate: float = Field(ge=0, le=1)
+
+    average_duration_seconds: float = Field(ge=0,)
+
+    total_model_rounds: int = Field(ge=0)
+
+    total_tool_calls: int = Field(ge=0)
+
+    failed_case_ids: tuple[str, ...] = ()
