@@ -9,3 +9,8 @@ torch==2.11.0
 transformers==5.19.0
 
 pydantic==2.13.4
+
+# Agent框架
+langchain==1.4.9
+langgraph==1.2.20
+langchain-openai==1.7.4
