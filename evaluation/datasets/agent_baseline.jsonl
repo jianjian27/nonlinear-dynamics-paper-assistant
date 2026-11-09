@@ -1,0 +1,4 @@
+{"case_id":"paper-list-001","question":"知识库中有哪些论文？请列出论文标题。","expected_tools":["list_papers"],"forbidden_tools":["search_paper_evidence"],"expected_answer_keywords":["分数阶多方向多涡卷Jerk系统","基于局部有源忆阻器的离散神经元"]}
+{"case_id":"paper-overview-001","question":"请介绍《分数阶多方向多涡卷Jerk系统的构造与DSP实现》的基本信息和章节结构。","expected_tools":["list_papers","get_paper_overview"],"forbidden_tools":[],"expected_answer_keywords":["分数阶多方向多涡卷Jerk系统","章节"]}
+{"case_id":"paper-method-001","question":"知识库中的论文使用了哪些动力学分析方法？请根据原文证据回答并注明章节和页码。","expected_tools":["search_paper_evidence"],"forbidden_tools":[],"expected_answer_keywords":["Lyapunov","页"]}
+{"case_id":"direct-chat-001","question":"你好，请简单说明你能帮助我完成哪些科研论文任务。","expected_tools":[],"forbidden_tools":["list_papers","get_paper_overview","search_paper_evidence"],"expected_answer_keywords":[]}

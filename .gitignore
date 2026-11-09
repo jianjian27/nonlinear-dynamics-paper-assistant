@@ -40,3 +40,6 @@ data/vector_indexes/
 
 # 本地导入的论文原文件
 data/papers/
+
+# 本地Agent评估报告
+evaluation/reports/
