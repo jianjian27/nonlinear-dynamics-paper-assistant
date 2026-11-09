@@ -7,6 +7,12 @@ from evaluation.dataset_loader import (
 from evaluation.models import (
     AgentEvalCase,
     EvaluationModel,
+    ToolTraceEvaluation,
+)
+from evaluation.trace_evaluator import (
+    ToolTraceFormatError,
+    evaluate_tool_trace,
+    extract_tool_names,
 )
 
 
@@ -15,4 +21,8 @@ __all__ = [
     "load_evaluation_cases",
     "AgentEvalCase",
     "EvaluationModel",
+    "ToolTraceEvaluation",
+    "ToolTraceFormatError",
+    "evaluate_tool_trace",
+    "extract_tool_names",
 ]

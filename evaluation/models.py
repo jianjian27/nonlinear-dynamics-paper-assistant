@@ -104,3 +104,21 @@ class AgentEvalCase(EvaluationModel):
         return self
 
 
+class ToolTraceEvaluation(EvaluationModel):
+    """一次Agent工具调用轨迹的评估结果。"""
+
+    case_id: str = Field(min_length=1)
+
+    actual_tools: tuple[str, ...]
+
+    missing_expected_tools: tuple[str, ...] = ()
+
+    used_forbidden_tools: tuple[str, ...] = ()
+
+    tool_call_count: int = Field(ge=0)
+
+    model_rounds: int = Field(ge=1)
+
+    passed: bool
+
+
