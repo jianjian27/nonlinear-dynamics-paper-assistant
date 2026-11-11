@@ -11,6 +11,7 @@ from framework_agent.tool_adapters import (
     adapt_agent_tool,
     adapt_agent_tools,
 )
+from framework_agent.runner import LangChainPaperAgentRunner
 
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "LangChainModelConfigurationError",
     "create_aliyun_langchain_model",
     "create_langchain_paper_agent",
+    "LangChainPaperAgentRunner",
 ]
 
