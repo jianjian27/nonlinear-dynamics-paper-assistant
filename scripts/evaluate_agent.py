@@ -18,6 +18,10 @@ from evaluation import (
     save_evaluation_report,
     summarize_evaluations,
 )
+from framework_agent import (
+    LangChainPaperAgentRunner,
+    create_langchain_paper_agent,
+)
 
 
 DEFAULT_DATASET_PATH = (
@@ -29,6 +33,7 @@ DEFAULT_REPORT_PATH = (
     "evaluation/reports/"
     "agent_baseline.md"
 )
+LANGCHAIN_REPORT_PATH = "evaluation/reports/agent_langchain.md"
 
 
 def create_argument_parser(
@@ -49,9 +54,15 @@ def create_argument_parser(
     )
 
     parser.add_argument(
+        "--backend",
+        choices=("custom", "langchain"),
+        default="custom",
+        help="选择 Agent 实现，默认使用自研版。",
+    )
+
+    parser.add_argument(
         "--output",
-        default=DEFAULT_REPORT_PATH,
-        help="Markdown评估报告输出路径。",
+        help="Markdown 报告路径，省略时按所选实现生成。",
     )
 
     parser.add_argument(
@@ -81,15 +92,13 @@ def create_argument_parser(
     parser.add_argument(
         "--max-model-rounds",
         type=int,
-        default=6,
-        help="每个案例最大模型轮数。",
+        help="自研版每个案例的最大模型轮数，默认 6。",
     )
 
     parser.add_argument(
         "--max-tool-calls",
         type=int,
-        default=12,
-        help="每个案例最大工具调用次数。",
+        help="自研版每个案例的最大工具调用次数，默认 12。",
     )
 
     parser.add_argument(
@@ -115,6 +124,21 @@ def main(
         arguments
     )
 
+    if options.backend == "langchain" and (
+        options.max_model_rounds is not None
+        or options.max_tool_calls is not None
+    ):
+        parser.error(
+            "--max-model-rounds 和 --max-tool-calls 当前仅适用于 custom。"
+        )
+
+    max_model_rounds = (
+        6 if options.max_model_rounds is None else options.max_model_rounds
+    )
+    max_tool_calls = (
+        12 if options.max_tool_calls is None else options.max_tool_calls
+    )
+
     database_path = Path(
         options.database
     ).resolve()
@@ -127,14 +151,14 @@ def main(
         )
         return 1
 
-    if options.max_model_rounds <= 0:
+    if max_model_rounds <= 0:
         print(
             "错误：最大模型轮数必须大于0。",
             file=sys.stderr,
         )
         return 1
 
-    if options.max_tool_calls <= 0:
+    if max_tool_calls <= 0:
         print(
             "错误：最大工具调用次数必须大于0。",
             file=sys.stderr,
@@ -146,25 +170,22 @@ def main(
             options.dataset
         )
 
-        runner = create_paper_agent_runner(
-            database_path=database_path,
-            vector_cache_directory=(
-                options
-                .vector_cache_directory
-            ),
-            embedding_model_name=(
-                options.embedding_model
-            ),
-            embedding_device=(
-                options.device
-            ),
-            max_model_rounds=(
-                options.max_model_rounds
-            ),
-            max_tool_calls=(
-                options.max_tool_calls
-            ),
-        )
+        common_options = {
+            "database_path": database_path,
+            "vector_cache_directory": options.vector_cache_directory,
+            "embedding_model_name": options.embedding_model,
+            "embedding_device": options.device,
+        }
+
+        if options.backend == "langchain":
+            agent = create_langchain_paper_agent(**common_options)
+            runner = LangChainPaperAgentRunner(agent)
+        else:
+            runner = create_paper_agent_runner(
+                **common_options,
+                max_model_rounds=max_model_rounds,
+                max_tool_calls=max_tool_calls,
+            )
 
     except Exception as error:
         print(
@@ -225,10 +246,16 @@ def main(
         summary,
     )
 
+    default_output = (
+        LANGCHAIN_REPORT_PATH
+        if options.backend == "langchain"
+        else DEFAULT_REPORT_PATH
+    )
     report_path = save_evaluation_report(
         report,
-        options.output,
+        options.output or default_output,
     )
+    print(f"评估实现：{options.backend}")
 
     print()
     print("=== Agent评估汇总 ===")
