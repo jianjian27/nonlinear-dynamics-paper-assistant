@@ -19,11 +19,12 @@ class TestResearchState(unittest.TestCase):
                 ]
             }
 
-        builder = StateGraph(ResearchState)
-        builder.add_node("collect_evidence", collect_evidence)
-        builder.add_edge(START, "collect_evidence")
-        builder.add_edge("collect_evidence", END)
-        workflow = builder.compile()
+        # 把 collect_evidence 函数组装成一个可以运行的流程。
+        builder = StateGraph(ResearchState) # 创建工作流的“设计图”，这个流程里的节点通过ResearchState所描述的状态传递数据。
+        builder.add_node("collect_evidence", collect_evidence) # 添加一个执行任务的节点，节点名称为 "collect_evidence"，执行的函数为 collect_evidence。
+        builder.add_edge(START, "collect_evidence") # 设置入口，工作流开始后，首先执行名为 "collect_evidence" 的节点。
+        builder.add_edge("collect_evidence", END) # 设置结束位置，collect_evidence 执行完成、状态更新后，结束本次工作流。
+        workflow = builder.compile() # 把设计图编译成可执行工作流
 
         result = workflow.invoke({
             "question": "比较两篇论文的动力学分析方法",
