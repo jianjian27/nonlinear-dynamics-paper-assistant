@@ -10,12 +10,20 @@ from agent_tools.retrieval_tools import SearchPaperEvidenceTool
 from framework_agent.research_evidence import ResearchEvidenceNode
 from framework_agent.research_nodes import ResearchScopeNodes
 from framework_agent.research_workflow import create_research_workflow
+from framework_agent.research_answer import ResearchAnswerNode
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
 
 
 class TestResearchWorkflow(unittest.TestCase):
     def setUp(self):
         self.list_tool = Mock(spec=ListPapersTool)
         self.search_tool = Mock(spec=SearchPaperEvidenceTool)
+        self.model = Mock(spec=BaseChatModel)
+        self.model.invoke.return_value = AIMessage(
+            content="模拟的多论文对比回答。"
+        )
 
         self.list_tool.invoke.return_value = {
             "database_available": True,
@@ -50,9 +58,12 @@ class TestResearchWorkflow(unittest.TestCase):
             top_k_per_paper=3,
         )
 
+        answer_node = ResearchAnswerNode(self.model)
+
         self.workflow = create_research_workflow(
             scope_nodes,
             evidence_node,
+            answer_node,
             checkpointer=InMemorySaver(),
         )
 
@@ -81,6 +92,8 @@ class TestResearchWorkflow(unittest.TestCase):
             snapshot.next,
             ("confirm_scope",),
         )
+
+        self.model.invoke.assert_not_called()
 
     def test_collects_evidence_after_approval(self):
         self.start_workflow()
@@ -116,6 +129,9 @@ class TestResearchWorkflow(unittest.TestCase):
         snapshot = self.workflow.get_state(self.config)
         self.assertEqual(snapshot.next, ())
 
+        self.assertIn("不足两篇", result["answer"])
+        self.model.invoke.assert_not_called()
+
     def test_cancel_finishes_without_search(self):
         self.start_workflow()
 
@@ -132,6 +148,8 @@ class TestResearchWorkflow(unittest.TestCase):
 
         snapshot = self.workflow.get_state(self.config)
         self.assertEqual(snapshot.next, ())
+
+        self.model.invoke.assert_not_called()
 
     def test_insufficient_papers_finish_without_interrupt(self):
         self.list_tool.invoke.return_value["papers"] = [
@@ -152,6 +170,69 @@ class TestResearchWorkflow(unittest.TestCase):
 
         snapshot = self.workflow.get_state(self.config)
         self.assertEqual(snapshot.next, ())
+
+        self.model.invoke.assert_not_called()
+
+    def test_generates_answer_after_collecting_evidence(self):
+        def search_result(arguments):
+            paper_id = arguments["paper_ids"][0]
+
+            return {
+                "database_available": True,
+                "scope_paper_ids": [paper_id],
+                "indexed_count": 5,
+                "result_count": 1,
+                "evidences": [
+                    {
+                        "rank": 1,
+                        "score": 0.85,
+                        "paper_id": paper_id,
+                        "paper_title": f"论文-{paper_id}",
+                        "chunk_id": f"chunk-{paper_id}",
+                        "section_path": ["动力学分析"],
+                        "page_start": 3,
+                        "page_end": 4,
+                        "content": "使用分岔图分析系统。",
+                    },
+                ],
+            }
+
+        self.search_tool.invoke.side_effect = search_result
+
+        # 第一次运行应暂停，不能提前调用模型。
+        self.start_workflow()
+        self.model.invoke.assert_not_called()
+
+        # 确认范围后，依次完成检索和回答。
+        result = self.workflow.invoke(
+            Command(resume={
+                "approved": True,
+                "selected_paper_ids": [
+                    "paper-001",
+                    "paper-002"
+                ],
+            }),
+            config=self.config,
+        )
+
+        self.assertEqual(
+            self.search_tool.invoke.call_count,
+            2,
+        )
+        self.model.invoke.assert_called_once()
+
+        self.assertEqual(
+            result["answer"],
+            "模拟的多论文对比回答。",
+        )
+
+        snapshot = self.workflow.get_state(self.config)
+
+        self.assertEqual(snapshot.next, ())
+        self.assertEqual(
+            snapshot.values["answer"],
+            result["answer"],
+        )
 
 
 if __name__ == "__main__":

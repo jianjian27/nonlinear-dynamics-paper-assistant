@@ -9,6 +9,7 @@ from langgraph.graph.state import CompiledStateGraph
 from framework_agent.research_evidence import ResearchEvidenceNode
 from framework_agent.research_nodes import ResearchScopeNodes
 from framework_agent.research_state import ResearchState
+from framework_agent.research_answer import ResearchAnswerNode
 
 
 def route_after_confirmation(
@@ -25,6 +26,7 @@ def route_after_confirmation(
 def create_research_workflow(
     scope_nodes: ResearchScopeNodes,
     evidence_node: ResearchEvidenceNode,
+    answer_node: ResearchAnswerNode,
     *,
     checkpointer: BaseCheckpointSaver,
 ) -> CompiledStateGraph:
@@ -43,6 +45,10 @@ def create_research_workflow(
     builder.add_node(
         "collect_evidence",
         evidence_node.collect,
+    )
+    builder.add_node(
+        "generate_answer",
+        answer_node.generate,
     )
 
     builder.add_edge(
@@ -68,6 +74,10 @@ def create_research_workflow(
 
     builder.add_edge(
         "collect_evidence",
+        "generate_answer",
+    )
+    builder.add_edge(
+        "generate_answer",
         END,
     )
 
