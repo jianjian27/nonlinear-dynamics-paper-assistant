@@ -1,4 +1,4 @@
-# 约定各节点如何交换任务数据
+# 定义节点之间传递哪些数据
 
 from typing import Any, TypedDict
 
